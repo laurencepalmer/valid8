@@ -133,7 +133,15 @@ document.addEventListener('DOMContentLoaded', () => {
                     setStatus(elements.codeStatus, 'Codebase loaded and indexed', 'success');
                     hideLoading();
                 } else {
-                    setTimeout(poll, 1000);
+                    // Show progress if available
+                    if (status.total > 0) {
+                        setStatus(
+                            elements.codeStatus,
+                            `Indexing... ${status.progress_percent}% (${status.progress}/${status.total} chunks)`,
+                            'loading'
+                        );
+                    }
+                    setTimeout(poll, 500);
                 }
             } catch (error) {
                 setStatus(elements.codeStatus, 'Error checking index status', 'error');

@@ -30,8 +30,7 @@ class OpenAIProvider(AIProvider):
         response = await self.client.chat.completions.create(
             model=self.model,
             messages=messages,
-            max_tokens=max_tokens,
-            temperature=temperature,
+            max_completion_tokens=max_tokens,
         )
         return response.choices[0].message.content or ""
 

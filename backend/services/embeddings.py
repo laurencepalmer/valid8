@@ -5,6 +5,7 @@ from chromadb.config import Settings as ChromaSettings
 from backend.config import get_settings
 from backend.models.codebase import Codebase, CodeChunk
 from backend.services.code_loader import chunk_code
+from backend.services.state import app_state
 
 
 class EmbeddingService:
@@ -35,17 +36,14 @@ class EmbeddingService:
         return self._chroma_client
 
     def get_embeddings(self, texts: list[str]) -> list[list[float]]:
+        """Sync version - only works with local embeddings."""
         if self.settings.use_local_embeddings and self.local_model:
             embeddings = self.local_model.encode(texts, convert_to_numpy=True)
             return embeddings.tolist()
 
-        from backend.services.ai import get_ai_provider
-
-        provider = get_ai_provider()
-        import asyncio
-
-        return asyncio.get_event_loop().run_until_complete(
-            provider.get_embeddings(texts)
+        raise RuntimeError(
+            "Sync get_embeddings() requires use_local_embeddings=True. "
+            "Use get_embeddings_async() for API-based embeddings."
         )
 
     async def get_embeddings_async(self, texts: list[str]) -> list[list[float]]:
@@ -58,7 +56,7 @@ class EmbeddingService:
         provider = get_ai_provider()
         return await provider.get_embeddings(texts)
 
-    def index_codebase(self, codebase: Codebase, collection_name: str = "code_chunks"):
+    async def index_codebase(self, codebase: Codebase, collection_name: str = "code_chunks"):
         try:
             self.chroma_client.delete_collection(collection_name)
         except Exception:
@@ -74,7 +72,10 @@ class EmbeddingService:
         if not chunks:
             return
 
-        batch_size = 100
+        total_chunks = len(chunks)
+        app_state.set_index_progress(0, total_chunks)
+
+        batch_size = 500  # Larger batches = fewer API calls
         for i in range(0, len(chunks), batch_size):
             batch = chunks[i : i + batch_size]
 
@@ -83,7 +84,7 @@ class EmbeddingService:
                 for c in batch
             ]
 
-            embeddings = self.get_embeddings(documents)
+            embeddings = await self.get_embeddings_async(documents)
 
             ids = [f"chunk_{i + j}" for j in range(len(batch))]
 
@@ -105,7 +106,10 @@ class EmbeddingService:
                 metadatas=metadatas,
             )
 
-    def search_similar(
+            # Update progress
+            app_state.set_index_progress(min(i + batch_size, total_chunks), total_chunks)
+
+    async def search_similar(
         self, query: str, n_results: int = 5, collection_name: str = "code_chunks"
     ) -> list[dict]:
         if self._collection is None:
@@ -114,7 +118,7 @@ class EmbeddingService:
             except Exception:
                 return []
 
-        query_embedding = self.get_embeddings([query])[0]
+        query_embedding = (await self.get_embeddings_async([query]))[0]
 
         results = self._collection.query(
             query_embeddings=[query_embedding],
@@ -142,7 +146,7 @@ class EmbeddingService:
     async def search_similar_async(
         self, query: str, n_results: int = 5, collection_name: str = "code_chunks"
     ) -> list[dict]:
-        return self.search_similar(query, n_results, collection_name)
+        return await self.search_similar(query, n_results, collection_name)
 
 
 _embedding_service: Optional[EmbeddingService] = None

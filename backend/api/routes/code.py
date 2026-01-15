@@ -8,10 +8,10 @@ from backend.services.state import app_state
 router = APIRouter()
 
 
-def index_codebase_background():
+async def index_codebase_background():
     if app_state.codebase:
         embedding_service = get_embedding_service()
-        embedding_service.index_codebase(app_state.codebase)
+        await embedding_service.index_codebase(app_state.codebase)
         app_state.set_indexed(True)
 
 
@@ -91,9 +91,16 @@ async def get_file_content(file_path: str):
 
 @router.get("/index-status")
 async def get_index_status():
+    progress_percent = 0
+    if app_state.index_total > 0:
+        progress_percent = int((app_state.index_progress / app_state.index_total) * 100)
+
     return {
         "indexed": app_state.is_indexed,
         "codebase_loaded": app_state.codebase is not None,
+        "progress": app_state.index_progress,
+        "total": app_state.index_total,
+        "progress_percent": progress_percent,
     }
 
 

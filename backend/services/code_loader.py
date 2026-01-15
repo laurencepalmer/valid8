@@ -130,10 +130,19 @@ def load_github_codebase(url: str) -> Codebase:
     repo_name = path_parts[1].replace(".git", "")
     clone_path = os.path.join(settings.clone_dir, repo_name)
 
+    # Cache repos - only re-clone if not already present
     if os.path.exists(clone_path):
-        shutil.rmtree(clone_path)
-
-    Repo.clone_from(url, clone_path, depth=1)
+        try:
+            # Verify it's a valid git repo and pull latest
+            existing_repo = Repo(clone_path)
+            existing_repo.remotes.origin.fetch(depth=1)
+            existing_repo.head.reset(commit='origin/HEAD', working_tree=True)
+        except Exception:
+            # If anything fails, re-clone
+            shutil.rmtree(clone_path)
+            Repo.clone_from(url, clone_path, depth=1)
+    else:
+        Repo.clone_from(url, clone_path, depth=1)
 
     codebase = load_local_codebase(clone_path)
     codebase.source_type = "github"
@@ -143,7 +152,7 @@ def load_github_codebase(url: str) -> Codebase:
 
 
 def chunk_code(
-    codebase: Codebase, chunk_size: int = 50, overlap: int = 10
+    codebase: Codebase, chunk_size: int = 100, overlap: int = 20
 ) -> list[CodeChunk]:
     chunks = []
 
