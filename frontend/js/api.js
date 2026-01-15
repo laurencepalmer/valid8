@@ -47,6 +47,10 @@ const api = {
         return response.json();
     },
 
+    getPdfUrl() {
+        return `${API_BASE}/papers/pdf`;
+    },
+
     async loadCodebase(pathOrUrl) {
         const isGithub = pathOrUrl.includes('github.com');
         const body = isGithub
@@ -114,30 +118,71 @@ const api = {
         return response.json();
     },
 
-    async checkAlignment(summary, filePaths = null) {
-        const body = { summary };
-        if (filePaths) {
-            body.file_paths = filePaths;
-        }
+    async getStatus() {
+        const response = await fetch(`${API_BASE}/status`);
+        return response.json();
+    },
 
-        const response = await fetch(`${API_BASE}/analysis/alignment`, {
+    // History APIs
+    async getPaperHistory() {
+        const response = await fetch(`${API_BASE}/papers/history`);
+        return response.json();
+    },
+
+    async loadPaperFromHistory(paperId) {
+        const response = await fetch(`${API_BASE}/papers/history/${paperId}/load`, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(body),
         });
 
         if (!response.ok) {
             const error = await response.json();
-            throw new Error(error.detail || 'Failed to check alignment');
+            throw new Error(error.detail || 'Failed to load paper from history');
         }
 
         return response.json();
     },
 
-    async getStatus() {
-        const response = await fetch(`${API_BASE}/status`);
+    async deletePaperFromHistory(paperId) {
+        const response = await fetch(`${API_BASE}/papers/history/${paperId}`, {
+            method: 'DELETE',
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || 'Failed to delete paper from history');
+        }
+
+        return response.json();
+    },
+
+    async getCodebaseHistory() {
+        const response = await fetch(`${API_BASE}/code/history`);
+        return response.json();
+    },
+
+    async loadCodebaseFromHistory(codebaseId) {
+        const response = await fetch(`${API_BASE}/code/history/${codebaseId}/load`, {
+            method: 'POST',
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || 'Failed to load codebase from history');
+        }
+
+        return response.json();
+    },
+
+    async deleteCodebaseFromHistory(codebaseId) {
+        const response = await fetch(`${API_BASE}/code/history/${codebaseId}`, {
+            method: 'DELETE',
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || 'Failed to delete codebase from history');
+        }
+
         return response.json();
     },
 };

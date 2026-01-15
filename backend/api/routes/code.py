@@ -4,6 +4,7 @@ from backend.models.codebase import CodeLoadRequest, CodeLoadResponse
 from backend.services.code_loader import load_local_codebase, load_github_codebase
 from backend.services.embeddings import get_embedding_service
 from backend.services.state import app_state
+from backend.services.history import history_manager
 
 router = APIRouter()
 
@@ -40,6 +41,7 @@ async def load_codebase(request: CodeLoadRequest, background_tasks: BackgroundTa
         )
 
     app_state.set_codebase(codebase)
+    history_manager.add_codebase(codebase)
 
     background_tasks.add_task(index_codebase_background)
 
@@ -109,3 +111,58 @@ async def clear_codebase():
     app_state.codebase = None
     app_state.is_indexed = False
     return {"success": True, "message": "Codebase cleared"}
+
+
+@router.get("/history")
+async def get_codebase_history():
+    """Get list of previously loaded codebases."""
+    codebases = history_manager.get_codebases()
+    return {"codebases": [c.model_dump() for c in codebases]}
+
+
+@router.post("/history/{codebase_id}/load")
+async def load_codebase_from_history(codebase_id: str, background_tasks: BackgroundTasks):
+    """Load a codebase from history."""
+    history_item = history_manager.get_codebase_by_id(codebase_id)
+    if not history_item:
+        raise HTTPException(status_code=404, detail="Codebase not found in history")
+
+    try:
+        if history_item.source_type == "github" and history_item.github_url:
+            codebase = load_github_codebase(history_item.github_url)
+        else:
+            codebase = load_local_codebase(history_item.path)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to load codebase: {str(e)}")
+
+    if not codebase.files:
+        raise HTTPException(
+            status_code=400,
+            detail="No supported code files found in the codebase",
+        )
+
+    app_state.set_codebase(codebase)
+    history_manager.add_codebase(codebase)
+
+    background_tasks.add_task(index_codebase_background)
+
+    languages = list(set(f.language for f in codebase.files))
+
+    return CodeLoadResponse(
+        success=True,
+        name=codebase.name,
+        source_type=codebase.source_type,
+        file_count=len(codebase.files),
+        total_lines=codebase.total_lines,
+        languages=languages,
+    )
+
+
+@router.delete("/history/{codebase_id}")
+async def delete_codebase_from_history(codebase_id: str):
+    """Delete a codebase from history."""
+    if history_manager.delete_codebase(codebase_id):
+        return {"success": True, "message": "Codebase deleted from history"}
+    raise HTTPException(status_code=404, detail="Codebase not found in history")

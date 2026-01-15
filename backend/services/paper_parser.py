@@ -31,6 +31,7 @@ def parse_pdf(file_path: str) -> Paper:
         sections=sections,
         source_type="pdf",
         page_count=len(sections),
+        file_path=file_path,
     )
 
 

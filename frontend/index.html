@@ -6,6 +6,7 @@
     <title>Valid8 - Research Paper & Code Alignment Checker</title>
     <link rel="stylesheet" href="css/styles.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 </head>
 <body>
     <header>
@@ -21,6 +22,11 @@
                     <input type="file" id="paperFile" accept=".pdf,.txt,.md,.tex" />
                     <span>or</span>
                     <button id="pasteTextBtn" class="secondary-btn">Paste Text</button>
+                    <span>or</span>
+                    <div class="history-dropdown">
+                        <button id="paperHistoryBtn" class="secondary-btn">Recent</button>
+                        <div id="paperHistoryMenu" class="history-menu hidden"></div>
+                    </div>
                 </div>
                 <div id="paperStatus" class="status"></div>
             </div>
@@ -30,17 +36,14 @@
                 <div class="input-group">
                     <input type="text" id="codePath" placeholder="Local path or GitHub URL" />
                     <button id="loadCodeBtn" class="primary-btn">Load</button>
+                    <div class="history-dropdown">
+                        <button id="codeHistoryBtn" class="secondary-btn">Recent</button>
+                        <div id="codeHistoryMenu" class="history-menu hidden"></div>
+                    </div>
                 </div>
                 <div id="codeStatus" class="status"></div>
             </div>
 
-            <div class="control-section">
-                <h3>Mode</h3>
-                <div class="mode-toggle">
-                    <button id="highlightModeBtn" class="mode-btn active">Highlight → Code</button>
-                    <button id="alignmentModeBtn" class="mode-btn">Alignment Check</button>
-                </div>
-            </div>
         </div>
 
         <div class="workspace">
@@ -48,6 +51,11 @@
                 <div class="panel-header">
                     <h2>Paper</h2>
                     <span id="paperName" class="file-name"></span>
+                    <div id="pdfControls" class="pdf-controls hidden">
+                        <button id="zoomOut" class="pdf-btn" title="Zoom Out">-</button>
+                        <span id="zoomLevel">100%</span>
+                        <button id="zoomIn" class="pdf-btn" title="Zoom In">+</button>
+                    </div>
                 </div>
                 <div id="paperContent" class="content-area">
                     <p class="placeholder">Upload a paper to view its content here. Select text to find related code.</p>
@@ -65,13 +73,6 @@
             </div>
         </div>
 
-        <div id="alignmentPanel" class="alignment-panel hidden">
-            <h3>Alignment Check</h3>
-            <p>Write a summary of what the code should do:</p>
-            <textarea id="summaryInput" placeholder="Describe the expected functionality..."></textarea>
-            <button id="checkAlignmentBtn" class="primary-btn">Check Alignment</button>
-            <div id="alignmentResults" class="alignment-results"></div>
-        </div>
     </main>
 
     <div id="textModal" class="modal hidden">
