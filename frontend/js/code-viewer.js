@@ -43,51 +43,6 @@ class CodeViewer {
         });
     }
 
-    showAlignmentResults(result) {
-        const scorePercent = Math.round(result.alignment_score * 100);
-        const scoreClass = scorePercent >= 70 ? 'high' : scorePercent >= 40 ? 'medium' : 'low';
-
-        let html = `
-            <div class="alignment-score">
-                <div class="score-bar">
-                    <div class="score-fill ${scoreClass}" style="width: ${scorePercent}%"></div>
-                </div>
-                <span class="score-value ${scoreClass}">${scorePercent}%</span>
-            </div>
-        `;
-
-        if (result.summary) {
-            html += `<div class="summary-text">${this.escapeHtml(result.summary)}</div>`;
-        }
-
-        if (result.issues && result.issues.length > 0) {
-            html += '<div class="alignment-issues">';
-            for (const issue of result.issues) {
-                html += `
-                    <div class="issue ${issue.issue_type}">
-                        <div class="issue-type">${issue.issue_type}</div>
-                        <div class="issue-description">${this.escapeHtml(issue.description)}</div>
-                        ${issue.summary_excerpt ? `<div class="issue-excerpt"><em>"${this.escapeHtml(issue.summary_excerpt)}"</em></div>` : ''}
-                    </div>
-                `;
-            }
-            html += '</div>';
-        }
-
-        if (result.suggestions && result.suggestions.length > 0) {
-            html += `
-                <div class="suggestions">
-                    <h4>Suggestions</h4>
-                    <ul>
-                        ${result.suggestions.map(s => `<li>${this.escapeHtml(s)}</li>`).join('')}
-                    </ul>
-                </div>
-            `;
-        }
-
-        return html;
-    }
-
     clear() {
         this.container.innerHTML = '<p class="placeholder">Load a codebase and highlight paper text to see related code.</p>';
 

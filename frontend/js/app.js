@@ -2,7 +2,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const paperViewer = new PaperViewer('paperContent', handleTextSelection);
     const codeViewer = new CodeViewer('codeContent');
 
-    let currentMode = 'highlight';
     let isIndexed = false;
 
     const elements = {
@@ -12,12 +11,6 @@ document.addEventListener('DOMContentLoaded', () => {
         codePath: document.getElementById('codePath'),
         loadCodeBtn: document.getElementById('loadCodeBtn'),
         codeStatus: document.getElementById('codeStatus'),
-        highlightModeBtn: document.getElementById('highlightModeBtn'),
-        alignmentModeBtn: document.getElementById('alignmentModeBtn'),
-        alignmentPanel: document.getElementById('alignmentPanel'),
-        summaryInput: document.getElementById('summaryInput'),
-        checkAlignmentBtn: document.getElementById('checkAlignmentBtn'),
-        alignmentResults: document.getElementById('alignmentResults'),
         textModal: document.getElementById('textModal'),
         textName: document.getElementById('textName'),
         textContent: document.getElementById('textContent'),
@@ -25,6 +18,10 @@ document.addEventListener('DOMContentLoaded', () => {
         submitTextBtn: document.getElementById('submitTextBtn'),
         loadingOverlay: document.getElementById('loadingOverlay'),
         loadingMessage: document.getElementById('loadingMessage'),
+        paperHistoryBtn: document.getElementById('paperHistoryBtn'),
+        paperHistoryMenu: document.getElementById('paperHistoryMenu'),
+        codeHistoryBtn: document.getElementById('codeHistoryBtn'),
+        codeHistoryMenu: document.getElementById('codeHistoryMenu'),
     };
 
     function showLoading(message = 'Processing...') {
@@ -41,6 +38,212 @@ document.addEventListener('DOMContentLoaded', () => {
         element.className = `status ${type}`;
     }
 
+    function formatDate(isoString) {
+        const date = new Date(isoString);
+        const now = new Date();
+        const diffMs = now - date;
+        const diffMins = Math.floor(diffMs / 60000);
+        const diffHours = Math.floor(diffMs / 3600000);
+        const diffDays = Math.floor(diffMs / 86400000);
+
+        if (diffMins < 1) return 'Just now';
+        if (diffMins < 60) return `${diffMins}m ago`;
+        if (diffHours < 24) return `${diffHours}h ago`;
+        if (diffDays < 7) return `${diffDays}d ago`;
+        return date.toLocaleDateString();
+    }
+
+    // Paper History
+    async function loadPaperHistory() {
+        try {
+            const data = await api.getPaperHistory();
+            renderPaperHistory(data.papers);
+        } catch (error) {
+            console.error('Failed to load paper history:', error);
+            elements.paperHistoryMenu.innerHTML = '<div class="history-empty">Failed to load history</div>';
+        }
+    }
+
+    function renderPaperHistory(papers) {
+        if (!papers || papers.length === 0) {
+            elements.paperHistoryMenu.innerHTML = '<div class="history-empty">No recent papers</div>';
+            return;
+        }
+
+        elements.paperHistoryMenu.innerHTML = papers.map(paper => `
+            <div class="history-item" data-id="${paper.id}">
+                <div class="history-item-info">
+                    <div class="history-item-name">${escapeHtml(paper.name)}</div>
+                    <div class="history-item-meta">${paper.source_type.toUpperCase()} - ${formatDate(paper.uploaded_at)}</div>
+                </div>
+                <button class="history-item-delete" data-id="${paper.id}" title="Remove from history">x</button>
+            </div>
+        `).join('');
+
+        // Add click handlers
+        elements.paperHistoryMenu.querySelectorAll('.history-item').forEach(item => {
+            item.addEventListener('click', async (e) => {
+                if (e.target.classList.contains('history-item-delete')) return;
+                const paperId = item.dataset.id;
+                await loadPaperFromHistory(paperId);
+                elements.paperHistoryMenu.classList.add('hidden');
+            });
+        });
+
+        elements.paperHistoryMenu.querySelectorAll('.history-item-delete').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                const paperId = btn.dataset.id;
+                await deletePaperFromHistory(paperId);
+            });
+        });
+    }
+
+    async function loadPaperFromHistory(paperId) {
+        showLoading('Loading paper...');
+        try {
+            const result = await api.loadPaperFromHistory(paperId);
+            setStatus(elements.paperStatus, `Loaded: ${result.total_length} characters`, 'success');
+
+            if (result.has_pdf) {
+                await paperViewer.setPdfUrl(api.getPdfUrl(), result.name);
+            } else {
+                const paper = await api.getPaperContent();
+                if (paper) {
+                    paperViewer.setContent(paper.content, paper.name);
+                }
+            }
+        } catch (error) {
+            setStatus(elements.paperStatus, error.message, 'error');
+        } finally {
+            hideLoading();
+        }
+    }
+
+    async function deletePaperFromHistory(paperId) {
+        try {
+            await api.deletePaperFromHistory(paperId);
+            await loadPaperHistory();
+        } catch (error) {
+            console.error('Failed to delete paper:', error);
+        }
+    }
+
+    // Codebase History
+    async function loadCodebaseHistory() {
+        try {
+            const data = await api.getCodebaseHistory();
+            renderCodebaseHistory(data.codebases);
+        } catch (error) {
+            console.error('Failed to load codebase history:', error);
+            elements.codeHistoryMenu.innerHTML = '<div class="history-empty">Failed to load history</div>';
+        }
+    }
+
+    function renderCodebaseHistory(codebases) {
+        if (!codebases || codebases.length === 0) {
+            elements.codeHistoryMenu.innerHTML = '<div class="history-empty">No recent codebases</div>';
+            return;
+        }
+
+        elements.codeHistoryMenu.innerHTML = codebases.map(codebase => `
+            <div class="history-item" data-id="${codebase.id}">
+                <div class="history-item-info">
+                    <div class="history-item-name">${escapeHtml(codebase.name)}</div>
+                    <div class="history-item-meta">${codebase.file_count} files - ${formatDate(codebase.loaded_at)}</div>
+                </div>
+                <button class="history-item-delete" data-id="${codebase.id}" title="Remove from history">x</button>
+            </div>
+        `).join('');
+
+        // Add click handlers
+        elements.codeHistoryMenu.querySelectorAll('.history-item').forEach(item => {
+            item.addEventListener('click', async (e) => {
+                if (e.target.classList.contains('history-item-delete')) return;
+                const codebaseId = item.dataset.id;
+                await loadCodebaseFromHistory(codebaseId);
+                elements.codeHistoryMenu.classList.add('hidden');
+            });
+        });
+
+        elements.codeHistoryMenu.querySelectorAll('.history-item-delete').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                const codebaseId = btn.dataset.id;
+                await deleteCodebaseFromHistory(codebaseId);
+            });
+        });
+    }
+
+    async function loadCodebaseFromHistory(codebaseId) {
+        showLoading('Loading codebase...');
+        setStatus(elements.codeStatus, 'Loading...', 'loading');
+
+        try {
+            const result = await api.loadCodebaseFromHistory(codebaseId);
+            codeViewer.setCodebaseName(result.name);
+            setStatus(
+                elements.codeStatus,
+                `Loaded ${result.file_count} files (${result.total_lines} lines). Indexing...`,
+                'loading'
+            );
+            pollIndexStatus();
+        } catch (error) {
+            setStatus(elements.codeStatus, error.message, 'error');
+            hideLoading();
+        }
+    }
+
+    async function deleteCodebaseFromHistory(codebaseId) {
+        try {
+            await api.deleteCodebaseFromHistory(codebaseId);
+            await loadCodebaseHistory();
+        } catch (error) {
+            console.error('Failed to delete codebase:', error);
+        }
+    }
+
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    // History dropdown toggle handlers
+    elements.paperHistoryBtn.addEventListener('click', async () => {
+        const isHidden = elements.paperHistoryMenu.classList.contains('hidden');
+        // Close other menus
+        elements.codeHistoryMenu.classList.add('hidden');
+
+        if (isHidden) {
+            await loadPaperHistory();
+            elements.paperHistoryMenu.classList.remove('hidden');
+        } else {
+            elements.paperHistoryMenu.classList.add('hidden');
+        }
+    });
+
+    elements.codeHistoryBtn.addEventListener('click', async () => {
+        const isHidden = elements.codeHistoryMenu.classList.contains('hidden');
+        // Close other menus
+        elements.paperHistoryMenu.classList.add('hidden');
+
+        if (isHidden) {
+            await loadCodebaseHistory();
+            elements.codeHistoryMenu.classList.remove('hidden');
+        } else {
+            elements.codeHistoryMenu.classList.add('hidden');
+        }
+    });
+
+    // Close menus when clicking outside
+    document.addEventListener('click', (e) => {
+        if (!e.target.closest('.history-dropdown')) {
+            elements.paperHistoryMenu.classList.add('hidden');
+            elements.codeHistoryMenu.classList.add('hidden');
+        }
+    });
+
     elements.paperFile.addEventListener('change', async (e) => {
         const file = e.target.files[0];
         if (!file) return;
@@ -52,7 +255,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const paper = await api.getPaperContent();
             if (paper) {
-                paperViewer.setContent(paper.content, paper.name);
+                if (paper.has_pdf) {
+                    // Load PDF for visual rendering
+                    await paperViewer.setPdfUrl(api.getPdfUrl(), paper.name);
+                } else {
+                    // Load plain text
+                    paperViewer.setContent(paper.content, paper.name);
+                }
             }
         } catch (error) {
             setStatus(elements.paperStatus, error.message, 'error');
@@ -152,7 +361,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function handleTextSelection(selectedText) {
-        if (currentMode !== 'highlight') return;
         if (!isIndexed) {
             alert('Please load and wait for codebase indexing to complete');
             return;
@@ -170,47 +378,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    elements.highlightModeBtn.addEventListener('click', () => {
-        currentMode = 'highlight';
-        elements.highlightModeBtn.classList.add('active');
-        elements.alignmentModeBtn.classList.remove('active');
-        elements.alignmentPanel.classList.add('hidden');
-        codeViewer.clear();
-        paperViewer.clearHighlights();
-    });
-
-    elements.alignmentModeBtn.addEventListener('click', () => {
-        currentMode = 'alignment';
-        elements.alignmentModeBtn.classList.add('active');
-        elements.highlightModeBtn.classList.remove('active');
-        elements.alignmentPanel.classList.remove('hidden');
-        codeViewer.clear();
-        paperViewer.clearHighlights();
-    });
-
-    elements.checkAlignmentBtn.addEventListener('click', async () => {
-        const summary = elements.summaryInput.value.trim();
-        if (!summary) {
-            alert('Please enter a summary');
-            return;
-        }
-
-        if (!isIndexed) {
-            alert('Please load and wait for codebase indexing to complete');
-            return;
-        }
-
-        showLoading('Checking alignment...');
-        try {
-            const result = await api.checkAlignment(summary);
-            elements.alignmentResults.innerHTML = codeViewer.showAlignmentResults(result);
-        } catch (error) {
-            alert(error.message);
-        } finally {
-            hideLoading();
-        }
-    });
-
     async function checkInitialStatus() {
         try {
             const status = await api.getStatus();
@@ -218,7 +385,11 @@ document.addEventListener('DOMContentLoaded', () => {
             if (status.paper_loaded) {
                 const paper = await api.getPaperContent();
                 if (paper) {
-                    paperViewer.setContent(paper.content, paper.name);
+                    if (paper.has_pdf) {
+                        await paperViewer.setPdfUrl(api.getPdfUrl(), paper.name);
+                    } else {
+                        paperViewer.setContent(paper.content, paper.name);
+                    }
                     setStatus(elements.paperStatus, `Loaded: ${paper.content.length} characters`, 'success');
                 }
             }

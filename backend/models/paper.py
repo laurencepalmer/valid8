@@ -15,6 +15,7 @@ class Paper(BaseModel):
     sections: list[PaperSection] = []
     source_type: str  # "pdf" or "text"
     page_count: Optional[int] = None
+    file_path: Optional[str] = None  # Path to the original file for PDF rendering
 
 
 class PaperUploadResponse(BaseModel):
