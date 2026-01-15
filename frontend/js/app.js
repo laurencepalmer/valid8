@@ -5,6 +5,8 @@ document.addEventListener('DOMContentLoaded', () => {
     let isIndexed = false;
 
     const elements = {
+        sidebar: document.getElementById('sidebar'),
+        sidebarToggle: document.getElementById('sidebarToggle'),
         paperFile: document.getElementById('paperFile'),
         pasteTextBtn: document.getElementById('pasteTextBtn'),
         paperStatus: document.getElementById('paperStatus'),
@@ -18,19 +20,37 @@ document.addEventListener('DOMContentLoaded', () => {
         submitTextBtn: document.getElementById('submitTextBtn'),
         loadingOverlay: document.getElementById('loadingOverlay'),
         loadingMessage: document.getElementById('loadingMessage'),
+        cancelRequestBtn: document.getElementById('cancelRequestBtn'),
         paperHistoryBtn: document.getElementById('paperHistoryBtn'),
         paperHistoryMenu: document.getElementById('paperHistoryMenu'),
         codeHistoryBtn: document.getElementById('codeHistoryBtn'),
         codeHistoryMenu: document.getElementById('codeHistoryMenu'),
+        thresholdSlider: document.getElementById('thresholdSlider'),
+        thresholdValue: document.getElementById('thresholdValue'),
     };
 
-    function showLoading(message = 'Processing...') {
+    // Sidebar toggle functionality
+    elements.sidebarToggle.addEventListener('click', () => {
+        elements.sidebar.classList.toggle('collapsed');
+    });
+
+    // Store last results for threshold filtering
+    let lastCodeReferences = [];
+    let lastSummary = '';
+
+    function showLoading(message = 'Processing...', showCancel = false) {
         elements.loadingMessage.textContent = message;
         elements.loadingOverlay.classList.remove('hidden');
+        if (showCancel) {
+            elements.cancelRequestBtn.classList.remove('hidden');
+        } else {
+            elements.cancelRequestBtn.classList.add('hidden');
+        }
     }
 
     function hideLoading() {
         elements.loadingOverlay.classList.add('hidden');
+        elements.cancelRequestBtn.classList.add('hidden');
     }
 
     function setStatus(element, message, type = '') {
@@ -366,17 +386,42 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        showLoading('Finding related code...');
+        showLoading('Finding related code...', true);
         try {
             const result = await api.analyzeHighlight(selectedText);
-            codeViewer.showReferences(result.code_references, result.summary);
+            // Store results for threshold filtering
+            lastCodeReferences = result.code_references || [];
+            lastSummary = result.summary || '';
+            // Apply current threshold filter
+            const threshold = parseInt(elements.thresholdSlider.value) / 100;
+            codeViewer.showReferences(lastCodeReferences, lastSummary, threshold);
             paperViewer.highlightText(selectedText);
         } catch (error) {
-            alert(error.message);
+            // Don't show error for cancelled requests
+            if (error.name !== 'AbortError') {
+                alert(error.message);
+            }
         } finally {
             hideLoading();
         }
     }
+
+    // Cancel button handler
+    elements.cancelRequestBtn.addEventListener('click', () => {
+        api.cancelAnalysis();
+        hideLoading();
+    });
+
+    // Threshold slider handler
+    elements.thresholdSlider.addEventListener('input', () => {
+        const value = elements.thresholdSlider.value;
+        elements.thresholdValue.textContent = `${value}%`;
+        // Re-filter existing results if we have any
+        if (lastCodeReferences.length > 0) {
+            const threshold = parseInt(value) / 100;
+            codeViewer.showReferences(lastCodeReferences, lastSummary, threshold);
+        }
+    });
 
     async function checkInitialStatus() {
         try {

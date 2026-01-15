@@ -8,8 +8,10 @@ class PaperViewer {
         this.scale = 1.0;
         this.pages = [];
         this.textContent = ''; // Store extracted text for highlighting
+        this.zoomTimeout = null; // Debounce timer for zoom
         this.setupEventListeners();
         this.setupPdfControls();
+        this.setupPinchZoom();
     }
 
     setupEventListeners() {
@@ -29,22 +31,92 @@ class PaperViewer {
 
         if (zoomIn) {
             zoomIn.addEventListener('click', () => {
-                if (this.scale < 3.0) {
-                    this.scale += 0.25;
-                    this.updateZoomDisplay();
-                    this.rerenderPdf();
-                }
+                this.zoomTo(this.scale + 0.25);
             });
         }
 
         if (zoomOut) {
             zoomOut.addEventListener('click', () => {
-                if (this.scale > 0.5) {
-                    this.scale -= 0.25;
-                    this.updateZoomDisplay();
-                    this.rerenderPdf();
-                }
+                this.zoomTo(this.scale - 0.25);
             });
+        }
+    }
+
+    setupPinchZoom() {
+        // Handle trackpad pinch-to-zoom (wheel event with ctrlKey)
+        this.container.addEventListener('wheel', (e) => {
+            if (!this.isPdf || !this.pdfDoc) return;
+
+            // Trackpad pinch gestures are reported as wheel events with ctrlKey
+            if (e.ctrlKey) {
+                e.preventDefault();
+
+                // Calculate zoom delta (negative deltaY = zoom in)
+                const zoomDelta = -e.deltaY * 0.01;
+                const newScale = Math.max(0.25, Math.min(5.0, this.scale + zoomDelta));
+
+                if (newScale !== this.scale) {
+                    this.scale = newScale;
+                    this.updateZoomDisplay();
+
+                    // Debounce the re-render for smoother zooming
+                    if (this.zoomTimeout) {
+                        clearTimeout(this.zoomTimeout);
+                    }
+                    this.zoomTimeout = setTimeout(() => {
+                        this.rerenderPdf();
+                    }, 100);
+                }
+            }
+        }, { passive: false });
+
+        // Handle touch pinch zoom for mobile/tablet
+        let initialDistance = 0;
+        let initialScale = 1;
+
+        this.container.addEventListener('touchstart', (e) => {
+            if (!this.isPdf || !this.pdfDoc) return;
+            if (e.touches.length === 2) {
+                initialDistance = this.getTouchDistance(e.touches);
+                initialScale = this.scale;
+            }
+        }, { passive: true });
+
+        this.container.addEventListener('touchmove', (e) => {
+            if (!this.isPdf || !this.pdfDoc) return;
+            if (e.touches.length === 2) {
+                e.preventDefault();
+                const currentDistance = this.getTouchDistance(e.touches);
+                const scaleFactor = currentDistance / initialDistance;
+                const newScale = Math.max(0.25, Math.min(5.0, initialScale * scaleFactor));
+
+                if (newScale !== this.scale) {
+                    this.scale = newScale;
+                    this.updateZoomDisplay();
+
+                    if (this.zoomTimeout) {
+                        clearTimeout(this.zoomTimeout);
+                    }
+                    this.zoomTimeout = setTimeout(() => {
+                        this.rerenderPdf();
+                    }, 100);
+                }
+            }
+        }, { passive: false });
+    }
+
+    getTouchDistance(touches) {
+        const dx = touches[0].clientX - touches[1].clientX;
+        const dy = touches[0].clientY - touches[1].clientY;
+        return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    zoomTo(newScale) {
+        newScale = Math.max(0.25, Math.min(5.0, newScale));
+        if (newScale !== this.scale && this.isPdf) {
+            this.scale = newScale;
+            this.updateZoomDisplay();
+            this.rerenderPdf();
         }
     }
 

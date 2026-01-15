@@ -101,21 +101,46 @@ const api = {
         return response.json();
     },
 
-    async analyzeHighlight(highlightedText) {
-        const response = await fetch(`${API_BASE}/analysis/highlight`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ highlighted_text: highlightedText }),
-        });
+    // Store the current AbortController for cancellable requests
+    currentAnalysisController: null,
 
-        if (!response.ok) {
-            const error = await response.json();
-            throw new Error(error.detail || 'Failed to analyze highlight');
+    async analyzeHighlight(highlightedText) {
+        // Cancel any existing request
+        if (this.currentAnalysisController) {
+            this.currentAnalysisController.abort();
         }
 
-        return response.json();
+        // Create new AbortController for this request
+        this.currentAnalysisController = new AbortController();
+
+        try {
+            const response = await fetch(`${API_BASE}/analysis/highlight`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ highlighted_text: highlightedText }),
+                signal: this.currentAnalysisController.signal,
+            });
+
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.detail || 'Failed to analyze highlight');
+            }
+
+            return response.json();
+        } finally {
+            this.currentAnalysisController = null;
+        }
+    },
+
+    cancelAnalysis() {
+        if (this.currentAnalysisController) {
+            this.currentAnalysisController.abort();
+            this.currentAnalysisController = null;
+            return true;
+        }
+        return false;
     },
 
     async getStatus() {

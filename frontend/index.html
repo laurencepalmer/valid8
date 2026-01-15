@@ -9,71 +9,86 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 </head>
 <body>
-    <header>
-        <h1>Valid8</h1>
-        <p class="subtitle">Research Paper & Code Alignment Checker</p>
-    </header>
+    <div class="app-container">
+        <!-- Collapsible Sidebar -->
+        <aside id="sidebar" class="sidebar">
+            <div class="sidebar-header">
+                <h1>Valid8</h1>
+                <p class="subtitle">Paper & Code Alignment</p>
+            </div>
 
-    <main>
-        <div class="controls">
-            <div class="control-section">
-                <h3>Load Paper</h3>
-                <div class="upload-options">
-                    <input type="file" id="paperFile" accept=".pdf,.txt,.md,.tex" />
-                    <span>or</span>
-                    <button id="pasteTextBtn" class="secondary-btn">Paste Text</button>
-                    <span>or</span>
-                    <div class="history-dropdown">
-                        <button id="paperHistoryBtn" class="secondary-btn">Recent</button>
-                        <div id="paperHistoryMenu" class="history-menu hidden"></div>
+            <div class="sidebar-content">
+                <div class="control-section">
+                    <h3>Load Paper</h3>
+                    <div class="upload-options">
+                        <label class="file-upload-btn">
+                            <input type="file" id="paperFile" accept=".pdf,.txt,.md,.tex" />
+                            <span>Choose File</span>
+                        </label>
+                        <button id="pasteTextBtn" class="secondary-btn">Paste Text</button>
+                        <div class="history-dropdown">
+                            <button id="paperHistoryBtn" class="secondary-btn">Recent</button>
+                            <div id="paperHistoryMenu" class="history-menu hidden"></div>
+                        </div>
+                    </div>
+                    <div id="paperStatus" class="status"></div>
+                </div>
+
+                <div class="control-section">
+                    <h3>Load Codebase</h3>
+                    <div class="input-stack">
+                        <input type="text" id="codePath" placeholder="Local path or GitHub URL" />
+                        <button id="loadCodeBtn" class="primary-btn full-width">Load</button>
+                        <div class="history-dropdown full-width">
+                            <button id="codeHistoryBtn" class="secondary-btn full-width">Recent Codebases</button>
+                            <div id="codeHistoryMenu" class="history-menu hidden"></div>
+                        </div>
+                    </div>
+                    <div id="codeStatus" class="status"></div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Sidebar Toggle Button -->
+        <button id="sidebarToggle" class="sidebar-toggle" title="Toggle sidebar">
+            <span class="toggle-icon"></span>
+        </button>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <div class="workspace">
+                <div class="panel paper-panel">
+                    <div class="panel-header">
+                        <h2>Paper</h2>
+                        <span id="paperName" class="file-name"></span>
+                        <div id="pdfControls" class="pdf-controls hidden">
+                            <button id="zoomOut" class="pdf-btn" title="Zoom Out">-</button>
+                            <span id="zoomLevel">100%</span>
+                            <button id="zoomIn" class="pdf-btn" title="Zoom In">+</button>
+                        </div>
+                    </div>
+                    <div id="paperContent" class="content-area">
+                        <p class="placeholder">Upload a paper to view its content here. Select text to find related code.</p>
                     </div>
                 </div>
-                <div id="paperStatus" class="status"></div>
-            </div>
 
-            <div class="control-section">
-                <h3>Load Codebase</h3>
-                <div class="input-group">
-                    <input type="text" id="codePath" placeholder="Local path or GitHub URL" />
-                    <button id="loadCodeBtn" class="primary-btn">Load</button>
-                    <div class="history-dropdown">
-                        <button id="codeHistoryBtn" class="secondary-btn">Recent</button>
-                        <div id="codeHistoryMenu" class="history-menu hidden"></div>
+                <div class="panel code-panel">
+                    <div class="panel-header">
+                        <h2>Code References</h2>
+                        <div class="threshold-control">
+                            <label for="thresholdSlider">Min Relevance:</label>
+                            <input type="range" id="thresholdSlider" min="0" max="100" value="0" />
+                            <span id="thresholdValue">0%</span>
+                        </div>
+                        <span id="codeName" class="file-name"></span>
+                    </div>
+                    <div id="codeContent" class="content-area">
+                        <p class="placeholder">Load a codebase and highlight paper text to see related code.</p>
                     </div>
                 </div>
-                <div id="codeStatus" class="status"></div>
             </div>
-
-        </div>
-
-        <div class="workspace">
-            <div class="panel paper-panel">
-                <div class="panel-header">
-                    <h2>Paper</h2>
-                    <span id="paperName" class="file-name"></span>
-                    <div id="pdfControls" class="pdf-controls hidden">
-                        <button id="zoomOut" class="pdf-btn" title="Zoom Out">-</button>
-                        <span id="zoomLevel">100%</span>
-                        <button id="zoomIn" class="pdf-btn" title="Zoom In">+</button>
-                    </div>
-                </div>
-                <div id="paperContent" class="content-area">
-                    <p class="placeholder">Upload a paper to view its content here. Select text to find related code.</p>
-                </div>
-            </div>
-
-            <div class="panel code-panel">
-                <div class="panel-header">
-                    <h2>Code References</h2>
-                    <span id="codeName" class="file-name"></span>
-                </div>
-                <div id="codeContent" class="content-area">
-                    <p class="placeholder">Load a codebase and highlight paper text to see related code.</p>
-                </div>
-            </div>
-        </div>
-
-    </main>
+        </main>
+    </div>
 
     <div id="textModal" class="modal hidden">
         <div class="modal-content">
@@ -90,6 +105,7 @@
     <div id="loadingOverlay" class="loading-overlay hidden">
         <div class="spinner"></div>
         <p id="loadingMessage">Processing...</p>
+        <button id="cancelRequestBtn" class="cancel-btn hidden">Cancel</button>
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>

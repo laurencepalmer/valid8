@@ -3,10 +3,21 @@ class CodeViewer {
         this.container = document.getElementById(containerId);
     }
 
-    showReferences(references, summary = '') {
+    showReferences(references, summary = '', threshold = 0) {
         if (!references || references.length === 0) {
             this.container.innerHTML = `
                 <p class="placeholder">No relevant code found for the selected text.</p>
+            `;
+            return;
+        }
+
+        // Filter references by threshold
+        const filteredRefs = references.filter(ref => ref.relevance_score >= threshold);
+
+        if (filteredRefs.length === 0) {
+            const thresholdPercent = Math.round(threshold * 100);
+            this.container.innerHTML = `
+                <p class="placeholder">No code references meet the ${thresholdPercent}% relevance threshold. Try lowering the threshold.</p>
             `;
             return;
         }
@@ -17,29 +28,55 @@ class CodeViewer {
             html += `<div class="summary-text"><strong>Summary:</strong> ${this.escapeHtml(summary)}</div>`;
         }
 
-        for (const ref of references) {
+        // Show count of filtered results
+        if (filteredRefs.length < references.length) {
+            html += `<div class="filter-info">Showing ${filteredRefs.length} of ${references.length} results</div>`;
+        }
+
+        for (let i = 0; i < filteredRefs.length; i++) {
+            const ref = filteredRefs[i];
             const relevancePercent = Math.round(ref.relevance_score * 100);
             const language = this.getLanguageClass(ref.relative_path);
+            const refId = `ref-${i}`;
 
             html += `
-                <div class="code-reference">
-                    <div class="code-reference-header">
+                <div class="code-reference" data-ref-id="${refId}">
+                    <div class="code-reference-header" data-toggle="${refId}">
+                        <span class="expand-icon"></span>
                         <span class="file-path">${this.escapeHtml(ref.relative_path)}</span>
-                        <span class="relevance">${relevancePercent}% relevant</span>
+                        <span class="line-info">Lines ${ref.start_line}-${ref.end_line}</span>
+                        <span class="relevance">${relevancePercent}%</span>
                     </div>
-                    ${ref.explanation ? `<div class="code-reference-explanation">${this.escapeHtml(ref.explanation)}</div>` : ''}
-                    <div class="line-numbers">Lines ${ref.start_line} - ${ref.end_line}</div>
-                    <pre><code class="language-${language}">${this.escapeHtml(ref.content)}</code></pre>
+                    <div class="code-reference-body" id="${refId}">
+                        ${ref.explanation ? `<div class="code-reference-explanation">${this.escapeHtml(ref.explanation)}</div>` : ''}
+                        <pre><code class="language-${language}">${this.escapeHtml(ref.content)}</code></pre>
+                    </div>
                 </div>
             `;
         }
 
         this.container.innerHTML = html;
 
-        this.container.querySelectorAll('pre code').forEach((block) => {
-            if (window.hljs) {
-                hljs.highlightElement(block);
-            }
+        // Add click handlers for expanding/collapsing
+        this.container.querySelectorAll('.code-reference-header[data-toggle]').forEach(header => {
+            header.addEventListener('click', () => {
+                const refId = header.dataset.toggle;
+                const body = document.getElementById(refId);
+                const reference = header.closest('.code-reference');
+
+                if (body && reference) {
+                    reference.classList.toggle('expanded');
+
+                    // Highlight code when expanded for the first time
+                    if (reference.classList.contains('expanded')) {
+                        const codeBlock = body.querySelector('pre code');
+                        if (codeBlock && !codeBlock.dataset.highlighted && window.hljs) {
+                            hljs.highlightElement(codeBlock);
+                            codeBlock.dataset.highlighted = 'true';
+                        }
+                    }
+                }
+            });
         });
     }
 
