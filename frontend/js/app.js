@@ -1,8 +1,16 @@
 document.addEventListener('DOMContentLoaded', () => {
+    // Paper viewer - handles PDF/text display and text selection
     const paperViewer = new PaperViewer('paperContent', handleTextSelection);
-    const codeViewer = new CodeViewer('codeContent');
+
+    // Code browser - handles file browsing AND code search results display
+    const codeBrowser = new CodeBrowser('codeContent', handleCodeSelection);
 
     let isIndexed = false;
+    let isPaperIndexed = false;
+
+    // Query history storage (in memory, persists during session)
+    let queryHistory = [];
+    const MAX_QUERY_HISTORY = 20;
 
     const elements = {
         sidebar: document.getElementById('sidebar'),
@@ -27,6 +35,11 @@ document.addEventListener('DOMContentLoaded', () => {
         codeHistoryMenu: document.getElementById('codeHistoryMenu'),
         thresholdSlider: document.getElementById('thresholdSlider'),
         thresholdValue: document.getElementById('thresholdValue'),
+        codebaseName: document.getElementById('codebaseName'),
+        clearPaperHighlights: document.getElementById('clearPaperHighlights'),
+        clearCodeResults: document.getElementById('clearCodeResults'),
+        queryHistoryBtn: document.getElementById('queryHistoryBtn'),
+        queryHistoryMenu: document.getElementById('queryHistoryMenu'),
     };
 
     // Sidebar toggle functionality
@@ -37,6 +50,111 @@ document.addEventListener('DOMContentLoaded', () => {
     // Store last results for threshold filtering
     let lastCodeReferences = [];
     let lastSummary = '';
+
+    // Handle code text selection - searches ONLY the paper for relevant sections
+    async function handleCodeSelection(selectedCode, filePath) {
+        console.log('handleCodeSelection called:', { selectedCode: selectedCode.substring(0, 50), filePath });
+        console.log('isPaperIndexed:', isPaperIndexed);
+
+        if (!isPaperIndexed) {
+            alert('Please load a paper and wait for indexing to complete');
+            return;
+        }
+
+        showLoading('Finding related paper sections...', true);
+
+        try {
+            console.log('Calling API analyzeCodeHighlight...');
+            const result = await api.analyzeCodeHighlight(selectedCode, filePath);
+            console.log('API result:', result);
+            const references = result.paper_references || [];
+            console.log('References count:', references.length);
+
+            // Add to query history
+            addToQueryHistory('code-to-paper', selectedCode, references.length);
+
+            if (references.length > 0) {
+                // Highlight the top matching text directly in the PDF
+                const topRef = references[0];
+                console.log('Top reference:', topRef);
+                console.log('Top reference page:', topRef.page);
+
+                paperViewer.clearHighlights();
+                // Pass the target page to focus highlighting there
+                paperViewer.highlightText(topRef.content, topRef.page);
+
+                // Show clear button for paper highlights
+                elements.clearPaperHighlights.classList.remove('hidden');
+                elements.queryHistoryBtn.classList.remove('hidden');
+            } else {
+                alert('No related paper sections found for the selected code.');
+            }
+
+            // Do NOT highlight the code - only show paper results
+            // The user selected code to find paper sections, not to highlight their code
+        } catch (error) {
+            console.error('handleCodeSelection error:', error);
+            if (error.name !== 'AbortError') {
+                alert(error.message);
+            }
+        } finally {
+            hideLoading();
+        }
+    }
+
+    // Handle paper text selection - searches ONLY the codebase for relevant code
+    async function handleTextSelection(selectedText) {
+        if (!isIndexed) {
+            alert('Please load and wait for codebase indexing to complete');
+            return;
+        }
+
+        showLoading('Finding related code...', true);
+        try {
+            // Note: This ONLY searches the codebase, not the paper
+            const result = await api.analyzeHighlight(selectedText);
+            lastCodeReferences = result.code_references || [];
+            lastSummary = result.summary || '';
+
+            // Add to query history
+            addToQueryHistory('paper-to-code', selectedText, lastCodeReferences.length);
+
+            const threshold = parseInt(elements.thresholdSlider.value) / 100;
+            codeBrowser.showSearchResults(lastCodeReferences, lastSummary, threshold);
+
+            // Do NOT highlight the paper - only show code results
+            // The user selected paper text to find code, not to highlight the paper
+
+            // Show clear buttons
+            if (lastCodeReferences.length > 0) {
+                elements.clearCodeResults.classList.remove('hidden');
+            }
+            elements.queryHistoryBtn.classList.remove('hidden');
+        } catch (error) {
+            if (error.name !== 'AbortError') {
+                alert(error.message);
+            }
+        } finally {
+            hideLoading();
+        }
+    }
+
+    // Poll paper index status after paper upload
+    async function pollPaperIndexStatus() {
+        const poll = async () => {
+            try {
+                const status = await api.getPaperIndexStatus();
+                if (status.indexed) {
+                    isPaperIndexed = true;
+                } else {
+                    setTimeout(poll, 500);
+                }
+            } catch (error) {
+                console.error('Error checking paper index status:', error);
+            }
+        };
+        poll();
+    }
 
     function showLoading(message = 'Processing...', showCancel = false) {
         elements.loadingMessage.textContent = message;
@@ -56,6 +174,12 @@ document.addEventListener('DOMContentLoaded', () => {
     function setStatus(element, message, type = '') {
         element.textContent = message;
         element.className = `status ${type}`;
+    }
+
+    function setCodebaseName(name) {
+        if (elements.codebaseName) {
+            elements.codebaseName.textContent = name;
+        }
     }
 
     function formatDate(isoString) {
@@ -100,7 +224,6 @@ document.addEventListener('DOMContentLoaded', () => {
             </div>
         `).join('');
 
-        // Add click handlers
         elements.paperHistoryMenu.querySelectorAll('.history-item').forEach(item => {
             item.addEventListener('click', async (e) => {
                 if (e.target.classList.contains('history-item-delete')) return;
@@ -121,6 +244,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async function loadPaperFromHistory(paperId) {
         showLoading('Loading paper...');
+        isPaperIndexed = false;
         try {
             const result = await api.loadPaperFromHistory(paperId);
             setStatus(elements.paperStatus, `Loaded: ${result.total_length} characters`, 'success');
@@ -133,6 +257,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     paperViewer.setContent(paper.content, paper.name);
                 }
             }
+
+            pollPaperIndexStatus();
         } catch (error) {
             setStatus(elements.paperStatus, error.message, 'error');
         } finally {
@@ -176,7 +302,6 @@ document.addEventListener('DOMContentLoaded', () => {
             </div>
         `).join('');
 
-        // Add click handlers
         elements.codeHistoryMenu.querySelectorAll('.history-item').forEach(item => {
             item.addEventListener('click', async (e) => {
                 if (e.target.classList.contains('history-item-delete')) return;
@@ -201,7 +326,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         try {
             const result = await api.loadCodebaseFromHistory(codebaseId);
-            codeViewer.setCodebaseName(result.name);
+            setCodebaseName(result.name);
             setStatus(
                 elements.codeStatus,
                 `Loaded ${result.file_count} files (${result.total_lines} lines). Indexing...`,
@@ -232,7 +357,6 @@ document.addEventListener('DOMContentLoaded', () => {
     // History dropdown toggle handlers
     elements.paperHistoryBtn.addEventListener('click', async () => {
         const isHidden = elements.paperHistoryMenu.classList.contains('hidden');
-        // Close other menus
         elements.codeHistoryMenu.classList.add('hidden');
 
         if (isHidden) {
@@ -245,7 +369,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     elements.codeHistoryBtn.addEventListener('click', async () => {
         const isHidden = elements.codeHistoryMenu.classList.contains('hidden');
-        // Close other menus
         elements.paperHistoryMenu.classList.add('hidden');
 
         if (isHidden) {
@@ -269,6 +392,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!file) return;
 
         showLoading('Uploading paper...');
+        isPaperIndexed = false;
         try {
             const result = await api.uploadPaper(file);
             setStatus(elements.paperStatus, `Loaded: ${result.total_length} characters`, 'success');
@@ -276,13 +400,13 @@ document.addEventListener('DOMContentLoaded', () => {
             const paper = await api.getPaperContent();
             if (paper) {
                 if (paper.has_pdf) {
-                    // Load PDF for visual rendering
                     await paperViewer.setPdfUrl(api.getPdfUrl(), paper.name);
                 } else {
-                    // Load plain text
                     paperViewer.setContent(paper.content, paper.name);
                 }
             }
+
+            pollPaperIndexStatus();
         } catch (error) {
             setStatus(elements.paperStatus, error.message, 'error');
         } finally {
@@ -312,6 +436,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const name = elements.textName.value.trim() || 'Pasted Text';
 
         showLoading('Processing text...');
+        isPaperIndexed = false;
         try {
             await api.uploadText(name, content);
             setStatus(elements.paperStatus, `Loaded: ${content.length} characters`, 'success');
@@ -320,6 +445,8 @@ document.addEventListener('DOMContentLoaded', () => {
             elements.textModal.classList.add('hidden');
             elements.textName.value = '';
             elements.textContent.value = '';
+
+            pollPaperIndexStatus();
         } catch (error) {
             setStatus(elements.paperStatus, error.message, 'error');
         } finally {
@@ -339,7 +466,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         try {
             const result = await api.loadCodebase(pathOrUrl);
-            codeViewer.setCodebaseName(result.name);
+            setCodebaseName(result.name);
             setStatus(
                 elements.codeStatus,
                 `Loaded ${result.file_count} files (${result.total_lines} lines). Indexing...`,
@@ -361,8 +488,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     isIndexed = true;
                     setStatus(elements.codeStatus, 'Codebase loaded and indexed', 'success');
                     hideLoading();
+                    // Load the code browser tree now that indexing is complete
+                    codeBrowser.loadTree();
                 } else {
-                    // Show progress if available
                     if (status.total > 0) {
                         setStatus(
                             elements.codeStatus,
@@ -380,48 +508,188 @@ document.addEventListener('DOMContentLoaded', () => {
         poll();
     }
 
-    async function handleTextSelection(selectedText) {
-        if (!isIndexed) {
-            alert('Please load and wait for codebase indexing to complete');
-            return;
-        }
-
-        showLoading('Finding related code...', true);
-        try {
-            const result = await api.analyzeHighlight(selectedText);
-            // Store results for threshold filtering
-            lastCodeReferences = result.code_references || [];
-            lastSummary = result.summary || '';
-            // Apply current threshold filter
-            const threshold = parseInt(elements.thresholdSlider.value) / 100;
-            codeViewer.showReferences(lastCodeReferences, lastSummary, threshold);
-            paperViewer.highlightText(selectedText);
-        } catch (error) {
-            // Don't show error for cancelled requests
-            if (error.name !== 'AbortError') {
-                alert(error.message);
-            }
-        } finally {
-            hideLoading();
-        }
-    }
-
     // Cancel button handler
     elements.cancelRequestBtn.addEventListener('click', () => {
         api.cancelAnalysis();
+        api.cancelCodeAnalysis();
         hideLoading();
     });
 
-    // Threshold slider handler
+    // Threshold slider handler - re-filter code search results
     elements.thresholdSlider.addEventListener('input', () => {
         const value = elements.thresholdSlider.value;
         elements.thresholdValue.textContent = `${value}%`;
-        // Re-filter existing results if we have any
         if (lastCodeReferences.length > 0) {
             const threshold = parseInt(value) / 100;
-            codeViewer.showReferences(lastCodeReferences, lastSummary, threshold);
+            codeBrowser.showSearchResults(lastCodeReferences, lastSummary, threshold);
         }
     });
+
+    // Clear paper highlights button handler
+    elements.clearPaperHighlights.addEventListener('click', () => {
+        paperViewer.clearHighlights();
+        elements.clearPaperHighlights.classList.add('hidden');
+    });
+
+    // Clear code results button handler
+    elements.clearCodeResults.addEventListener('click', () => {
+        lastCodeReferences = [];
+        lastSummary = '';
+        codeBrowser.loadTree(); // Reload the tree view
+        elements.clearCodeResults.classList.add('hidden');
+    });
+
+    // Query history functions
+    function addToQueryHistory(type, text, resultCount) {
+        const entry = {
+            type,
+            text: text.substring(0, 200), // Truncate for storage
+            fullText: text,
+            resultCount,
+            timestamp: new Date().toISOString()
+        };
+
+        // Add to beginning
+        queryHistory.unshift(entry);
+
+        // Limit size
+        if (queryHistory.length > MAX_QUERY_HISTORY) {
+            queryHistory = queryHistory.slice(0, MAX_QUERY_HISTORY);
+        }
+
+        // Save to localStorage
+        try {
+            localStorage.setItem('valid8_query_history', JSON.stringify(queryHistory));
+        } catch (e) {
+            console.warn('Could not save query history to localStorage:', e);
+        }
+    }
+
+    function loadQueryHistory() {
+        try {
+            const saved = localStorage.getItem('valid8_query_history');
+            if (saved) {
+                queryHistory = JSON.parse(saved);
+            }
+        } catch (e) {
+            console.warn('Could not load query history from localStorage:', e);
+            queryHistory = [];
+        }
+    }
+
+    function renderQueryHistory() {
+        if (queryHistory.length === 0) {
+            elements.queryHistoryMenu.innerHTML = '<div class="query-history-empty">No queries yet</div>';
+            return;
+        }
+
+        let html = '';
+        queryHistory.forEach((entry, index) => {
+            const typeLabel = entry.type === 'paper-to-code' ? 'Paper → Code' : 'Code → Paper';
+            const timeAgo = formatTimeAgo(entry.timestamp);
+            const preview = entry.text.substring(0, 60) + (entry.text.length > 60 ? '...' : '');
+
+            html += `
+                <div class="query-history-item" data-index="${index}">
+                    <div class="query-history-item-type">${typeLabel} (${entry.resultCount} results)</div>
+                    <div class="query-history-item-text">${escapeHtml(preview)}</div>
+                    <div class="query-history-item-time">${timeAgo}</div>
+                </div>
+            `;
+        });
+
+        html += `
+            <div class="query-history-clear">
+                <button id="clearQueryHistory">Clear History</button>
+            </div>
+        `;
+
+        elements.queryHistoryMenu.innerHTML = html;
+
+        // Add click handlers for history items
+        elements.queryHistoryMenu.querySelectorAll('.query-history-item').forEach(item => {
+            item.addEventListener('click', () => {
+                const index = parseInt(item.dataset.index);
+                const entry = queryHistory[index];
+                if (entry) {
+                    rerunQuery(entry);
+                }
+                elements.queryHistoryMenu.classList.add('hidden');
+            });
+        });
+
+        // Add clear history handler
+        const clearBtn = elements.queryHistoryMenu.querySelector('#clearQueryHistory');
+        if (clearBtn) {
+            clearBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                queryHistory = [];
+                try {
+                    localStorage.removeItem('valid8_query_history');
+                } catch (e) {}
+                elements.queryHistoryMenu.classList.add('hidden');
+            });
+        }
+    }
+
+    async function rerunQuery(entry) {
+        if (entry.type === 'paper-to-code') {
+            if (!isIndexed) {
+                alert('Please load a codebase first');
+                return;
+            }
+            await handleTextSelection(entry.fullText);
+        } else if (entry.type === 'code-to-paper') {
+            if (!isPaperIndexed) {
+                alert('Please load a paper first');
+                return;
+            }
+            await handleCodeSelection(entry.fullText, null);
+        }
+    }
+
+    function formatTimeAgo(isoString) {
+        const date = new Date(isoString);
+        const now = new Date();
+        const diffMs = now - date;
+        const diffMins = Math.floor(diffMs / 60000);
+        const diffHours = Math.floor(diffMs / 3600000);
+        const diffDays = Math.floor(diffMs / 86400000);
+
+        if (diffMins < 1) return 'Just now';
+        if (diffMins < 60) return `${diffMins}m ago`;
+        if (diffHours < 24) return `${diffHours}h ago`;
+        if (diffDays < 7) return `${diffDays}d ago`;
+        return date.toLocaleDateString();
+    }
+
+    // Query history button handler
+    elements.queryHistoryBtn.addEventListener('click', () => {
+        const isHidden = elements.queryHistoryMenu.classList.contains('hidden');
+        // Close other dropdowns
+        elements.paperHistoryMenu.classList.add('hidden');
+        elements.codeHistoryMenu.classList.add('hidden');
+
+        if (isHidden) {
+            renderQueryHistory();
+            elements.queryHistoryMenu.classList.remove('hidden');
+        } else {
+            elements.queryHistoryMenu.classList.add('hidden');
+        }
+    });
+
+    // Close query history menu when clicking outside
+    document.addEventListener('click', (e) => {
+        if (!e.target.closest('.query-history-dropdown')) {
+            elements.queryHistoryMenu.classList.add('hidden');
+        }
+    });
+
+    // Load query history on startup
+    loadQueryHistory();
+    if (queryHistory.length > 0) {
+        elements.queryHistoryBtn.classList.remove('hidden');
+    }
 
     async function checkInitialStatus() {
         try {
@@ -437,13 +705,22 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                     setStatus(elements.paperStatus, `Loaded: ${paper.content.length} characters`, 'success');
                 }
+
+                const paperIndexStatus = await api.getPaperIndexStatus();
+                if (paperIndexStatus.indexed) {
+                    isPaperIndexed = true;
+                } else {
+                    pollPaperIndexStatus();
+                }
             }
 
             if (status.codebase_loaded) {
-                codeViewer.setCodebaseName(status.codebase_path);
+                setCodebaseName(status.codebase_path);
                 if (status.indexed) {
                     isIndexed = true;
                     setStatus(elements.codeStatus, 'Codebase loaded and indexed', 'success');
+                    // Load the code browser tree
+                    codeBrowser.loadTree();
                 } else {
                     setStatus(elements.codeStatus, 'Indexing...', 'loading');
                     pollIndexStatus();

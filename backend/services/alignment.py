@@ -6,8 +6,11 @@ from backend.models.analysis import (
     HighlightAnalysisResponse,
     AlignmentCheckResponse,
     AlignmentIssue,
+    PaperReference,
+    CodeHighlightAnalysisResponse,
 )
 from backend.models.codebase import Codebase
+from backend.models.paper import Paper
 from backend.services.ai import get_ai_provider
 from backend.services.embeddings import get_embedding_service
 from backend.services.state import app_state
@@ -52,6 +55,25 @@ Respond in JSON format with the following structure:
     ],
     "suggestions": ["<suggestion 1>", "<suggestion 2>"],
     "summary": "<overall assessment>"
+}"""
+
+
+CODE_TO_PAPER_SYSTEM_PROMPT = """You are an expert at analyzing code implementations and their corresponding research paper descriptions.
+Given a highlighted code snippet and relevant paper sections, your task is to:
+1. Identify which paper sections are most relevant to the code
+2. Explain how each paper section relates to the code implementation
+3. Provide a brief summary of the connection
+
+Respond in JSON format with the following structure:
+{
+    "relevant_sections": [
+        {
+            "index": <index of the section from the provided list>,
+            "relevance_score": <0.0 to 1.0>,
+            "explanation": "<how this paper section relates to the code>"
+        }
+    ],
+    "summary": "<brief overall summary of the code-to-paper connection>"
 }"""
 
 
@@ -258,4 +280,106 @@ Evaluate how well the code matches the user's description."""
         is_aligned=result.get("is_aligned", alignment_score >= 0.7),
         issues=issues,
         suggestions=result.get("suggestions", []),
+    )
+
+
+async def analyze_code_highlight(
+    highlighted_code: str,
+    file_path: Optional[str] = None,
+    paper: Optional[Paper] = None,
+    n_results: int = 5,
+) -> CodeHighlightAnalysisResponse:
+    """Analyze highlighted code and find relevant paper sections."""
+    if paper is None:
+        paper = app_state.paper
+
+    if paper is None:
+        raise ValueError("No paper loaded")
+
+    embedding_service = get_embedding_service()
+    similar_sections = await embedding_service.search_paper_similar(
+        highlighted_code, n_results=n_results
+    )
+
+    if not similar_sections:
+        return CodeHighlightAnalysisResponse(
+            highlighted_code=highlighted_code,
+            paper_references=[],
+            summary="No relevant paper sections found for the highlighted code.",
+        )
+
+    # Format context for AI
+    context_info = f"Code from file: {file_path}\n" if file_path else ""
+    sections_text = "\n\n".join(
+        f"[Section {i}] Page {section['metadata'].get('page', 'N/A')}:\n{section['document']}"
+        for i, section in enumerate(similar_sections)
+    )
+
+    prompt = f"""Highlighted code:
+{context_info}
+\"\"\"{highlighted_code}\"\"\"
+
+Potentially relevant paper sections:
+{sections_text}
+
+Analyze which paper sections are most relevant to this code implementation."""
+
+    ai_provider = get_ai_provider()
+    response = await ai_provider.complete(
+        prompt, system_prompt=CODE_TO_PAPER_SYSTEM_PROMPT
+    )
+
+    try:
+        start_idx = response.find("{")
+        end_idx = response.rfind("}") + 1
+        if start_idx != -1 and end_idx > start_idx:
+            response = response[start_idx:end_idx]
+        result = json.loads(response)
+    except json.JSONDecodeError:
+        result = {
+            "relevant_sections": [
+                {"index": i, "relevance_score": section["similarity"], "explanation": ""}
+                for i, section in enumerate(similar_sections[:3])
+            ],
+            "summary": "Analysis completed using embedding similarity.",
+        }
+
+    paper_references = []
+    for section_info in result.get("relevant_sections", []):
+        idx = section_info.get("index", 0)
+        if idx < len(similar_sections):
+            section = similar_sections[idx]
+            metadata = section["metadata"]
+
+            # Extract clean content (remove header lines)
+            lines = section["document"].split("\n")
+            content_start = next(
+                (
+                    i
+                    for i, line in enumerate(lines)
+                    if not line.startswith("Paper:") and not line.startswith("Page ")
+                ),
+                0,
+            )
+            content = "\n".join(lines[content_start:])
+
+            paper_references.append(
+                PaperReference(
+                    content=content,
+                    page=metadata.get("page"),
+                    start_idx=metadata["start_idx"],
+                    end_idx=metadata["end_idx"],
+                    relevance_score=section_info.get(
+                        "relevance_score", section["similarity"]
+                    ),
+                    explanation=section_info.get(
+                        "explanation", "Matched via semantic similarity"
+                    ),
+                )
+            )
+
+    return CodeHighlightAnalysisResponse(
+        highlighted_code=highlighted_code,
+        paper_references=paper_references,
+        summary=result.get("summary", ""),
     )

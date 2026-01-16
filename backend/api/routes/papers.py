@@ -1,6 +1,6 @@
 import os
 import uuid
-from fastapi import APIRouter, UploadFile, File, HTTPException
+from fastapi import APIRouter, UploadFile, File, HTTPException, BackgroundTasks
 from fastapi.responses import FileResponse
 
 from backend.config import get_settings
@@ -8,12 +8,22 @@ from backend.models.paper import Paper, PaperUploadResponse, TextUploadRequest
 from backend.services.paper_parser import parse_pdf, parse_text
 from backend.services.state import app_state
 from backend.services.history import history_manager
+from backend.services.embeddings import get_embedding_service
 
 router = APIRouter()
 
 
+async def index_paper_background():
+    """Background task to index paper content for code-to-paper search."""
+    if app_state.paper:
+        embedding_service = get_embedding_service()
+        await embedding_service.index_paper(app_state.paper)
+
+
 @router.post("/upload", response_model=PaperUploadResponse)
-async def upload_paper(file: UploadFile = File(...)):
+async def upload_paper(
+    background_tasks: BackgroundTasks, file: UploadFile = File(...)
+):
     settings = get_settings()
 
     if not file.filename:
@@ -59,6 +69,9 @@ async def upload_paper(file: UploadFile = File(...)):
     app_state.set_paper(paper)
     history_manager.add_paper(paper)
 
+    # Trigger paper indexing in background for code-to-paper search
+    background_tasks.add_task(index_paper_background)
+
     return PaperUploadResponse(
         success=True,
         name=paper.name,
@@ -69,10 +82,13 @@ async def upload_paper(file: UploadFile = File(...)):
 
 
 @router.post("/text", response_model=PaperUploadResponse)
-async def upload_text(request: TextUploadRequest):
+async def upload_text(background_tasks: BackgroundTasks, request: TextUploadRequest):
     paper = parse_text(request.content, name=request.name)
     app_state.set_paper(paper)
     history_manager.add_paper(paper)
+
+    # Trigger paper indexing in background for code-to-paper search
+    background_tasks.add_task(index_paper_background)
 
     return PaperUploadResponse(
         success=True,
@@ -129,7 +145,7 @@ async def get_paper_history():
 
 
 @router.post("/history/{paper_id}/load")
-async def load_paper_from_history(paper_id: str):
+async def load_paper_from_history(background_tasks: BackgroundTasks, paper_id: str):
     """Load a paper from history."""
     history_item = history_manager.get_paper_by_id(paper_id)
     if not history_item:
@@ -149,12 +165,26 @@ async def load_paper_from_history(paper_id: str):
 
     app_state.set_paper(paper)
 
+    # Trigger paper indexing in background for code-to-paper search
+    background_tasks.add_task(index_paper_background)
+
     return {
         "success": True,
         "name": paper.name,
         "total_length": len(paper.content),
         "source_type": paper.source_type,
         "has_pdf": paper.source_type == "pdf" and paper.file_path is not None,
+    }
+
+
+@router.get("/index-status")
+async def get_paper_index_status():
+    """Check if paper is indexed for code-to-paper search."""
+    return {
+        "indexed": app_state.is_paper_indexed,
+        "paper_loaded": app_state.paper is not None,
+        "progress": app_state.paper_index_progress,
+        "total": app_state.paper_index_total,
     }
 
 

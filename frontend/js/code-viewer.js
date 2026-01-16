@@ -1,6 +1,7 @@
 class CodeViewer {
     constructor(containerId) {
         this.container = document.getElementById(containerId);
+        this.codebaseName = null;
     }
 
     showReferences(references, summary = '', threshold = 0) {
@@ -90,6 +91,7 @@ class CodeViewer {
     }
 
     setCodebaseName(name) {
+        this.codebaseName = name;
         const nameEl = document.getElementById('codeName');
         if (nameEl) {
             nameEl.textContent = name;
