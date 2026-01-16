@@ -9,6 +9,7 @@ from backend.services.paper_parser import parse_pdf, parse_text
 from backend.services.state import app_state
 from backend.services.history import history_manager
 from backend.services.embeddings import get_embedding_service
+from backend.services.logging import logger, get_safe_error_message, sanitize_error
 
 router = APIRouter()
 
@@ -50,7 +51,11 @@ async def upload_paper(
             paper.name = file.filename
         except Exception as e:
             os.remove(file_path)
-            raise HTTPException(status_code=400, detail=f"Failed to parse PDF: {str(e)}")
+            logger.error(f"Failed to parse PDF: {sanitize_error(e)}", exc_info=True)
+            raise HTTPException(
+                status_code=400,
+                detail=get_safe_error_message(e, "PDF parsing")
+            )
 
     elif file_ext in (".txt", ".md", ".tex"):
         try:

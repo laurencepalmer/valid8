@@ -38,6 +38,13 @@ class Settings(BaseSettings):
         ".scala", ".r", ".m", ".mm", ".cs", ".vue", ".svelte"
     ]
 
+    # CORS Configuration
+    cors_origins: list[str] = ["http://localhost:8000", "http://127.0.0.1:8000"]
+
+    # Logging Configuration
+    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
+    log_format: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
