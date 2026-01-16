@@ -8,6 +8,7 @@ from backend.models.analysis import (
 )
 from backend.services.alignment import analyze_highlight, analyze_code_highlight
 from backend.services.state import app_state
+from backend.services.logging import logger, get_safe_error_message, sanitize_error
 
 router = APIRouter()
 
@@ -30,7 +31,11 @@ async def analyze_highlighted_text(request: HighlightAnalysisRequest):
         result = await analyze_highlight(request.highlighted_text)
         return result
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
+        logger.error(f"Highlight analysis failed: {sanitize_error(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=get_safe_error_message(e, "Analysis")
+        )
 
 
 @router.post("/code-highlight", response_model=CodeHighlightAnalysisResponse)
@@ -54,4 +59,8 @@ async def analyze_code_highlighted_text(request: CodeHighlightAnalysisRequest):
         )
         return result
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
+        logger.error(f"Code highlight analysis failed: {sanitize_error(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=get_safe_error_message(e, "Analysis")
+        )

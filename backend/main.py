@@ -6,16 +6,30 @@ from fastapi.staticfiles import StaticFiles
 
 from backend.config import get_settings
 from backend.api.routes import papers, code, analysis
+from backend.services.logging import logger, setup_logging
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
+
+    # Initialize logging
+    setup_logging()
+    logger.info("Starting Valid8 application")
+
     os.makedirs(settings.upload_dir, exist_ok=True)
     os.makedirs(settings.clone_dir, exist_ok=True)
     os.makedirs(settings.chroma_persist_dir, exist_ok=True)
+
+    logger.info(f"AI Provider: {settings.ai_provider}")
+    logger.info(f"CORS Origins: {settings.cors_origins}")
+
     yield
 
+    logger.info("Shutting down Valid8 application")
+
+
+settings = get_settings()
 
 app = FastAPI(
     title="Valid8",
@@ -26,7 +40,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

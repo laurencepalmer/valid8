@@ -6,6 +6,7 @@ from backend.services.code_loader import load_local_codebase, load_github_codeba
 from backend.services.embeddings import get_embedding_service
 from backend.services.state import app_state
 from backend.services.history import history_manager
+from backend.services.logging import logger, get_safe_error_message, sanitize_error
 
 router = APIRouter()
 
@@ -31,9 +32,14 @@ async def load_codebase(request: CodeLoadRequest, background_tasks: BackgroundTa
         else:
             codebase = load_local_codebase(request.path)
     except ValueError as e:
+        logger.warning(f"Invalid codebase request: {sanitize_error(e)}")
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to load codebase: {str(e)}")
+        logger.error(f"Failed to load codebase: {sanitize_error(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=get_safe_error_message(e, "Codebase loading")
+        )
 
     if not codebase.files:
         raise HTTPException(
@@ -165,9 +171,14 @@ async def load_codebase_from_history(codebase_id: str, background_tasks: Backgro
         else:
             codebase = load_local_codebase(history_item.path)
     except ValueError as e:
+        logger.warning(f"Invalid codebase from history: {sanitize_error(e)}")
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to load codebase: {str(e)}")
+        logger.error(f"Failed to load codebase from history: {sanitize_error(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=get_safe_error_message(e, "Codebase loading")
+        )
 
     if not codebase.files:
         raise HTTPException(
