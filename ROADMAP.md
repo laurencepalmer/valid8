@@ -1,0 +1,27 @@
+# Rough Roadmap for Valid8
+- [ ] PDF to Code Search/Code to PDF Search
+    - [ ] Improve Section Chunking  
+    - [ ] Selective embeddings over code 
+    - [ ] Informed retrieval 
+        - [ ] Lexical/Kword Sim
+        - [ ] Abstract Syntax Trees/Pseudo natural language 
+        - [ ] Test CrossModal models 
+            - [ ] CodeBERT
+            - [ ] GraphCodeBERT
+            - [ ] StarCoder
+        - [ ] Graphs
+            - [ ] Control Flow Graph 
+            - [ ] Data Flow Graph 
+            - [ ] Call Graph
+- [ ] Code Review 
+    - [ ] Implement interactive code review with API
+- [ ] Methods from Code 
+    - [ ] Implement basic method (API call) 
+    - [ ] Implement auto-references
+        - [ ] Local repo or MCP with search 
+- [ ] Code Gen from PDF article description
+    - [ ] 
+- [ ] General 
+    - [ ] Include functionality for suggesting/improving performance on requests for Code Search/Code to PDF search
+        - [ ] DB to store code - section pairs
+    - [ ] GUI options for toggling between providers/options for retrieval
