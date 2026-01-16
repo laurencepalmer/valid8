@@ -9,6 +9,8 @@ class PaperViewer {
         this.pages = [];
         this.textContent = ''; // Store extracted text for highlighting
         this.zoomTimeout = null; // Debounce timer for zoom
+        // Store current highlight state for persistence across zoom
+        this.currentHighlight = null; // { text, targetPage }
         this.setupEventListeners();
         this.setupPdfControls();
         this.setupPinchZoom();
@@ -29,14 +31,20 @@ class PaperViewer {
         const zoomIn = document.getElementById('zoomIn');
         const zoomOut = document.getElementById('zoomOut');
 
+        console.log('setupPdfControls:', { zoomIn: !!zoomIn, zoomOut: !!zoomOut });
+
         if (zoomIn) {
-            zoomIn.addEventListener('click', () => {
+            zoomIn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                console.log('Zoom in clicked, current scale:', this.scale);
                 this.zoomTo(this.scale + 0.25);
             });
         }
 
         if (zoomOut) {
-            zoomOut.addEventListener('click', () => {
+            zoomOut.addEventListener('click', (e) => {
+                e.stopPropagation();
+                console.log('Zoom out clicked, current scale:', this.scale);
                 this.zoomTo(this.scale - 0.25);
             });
         }
@@ -113,7 +121,8 @@ class PaperViewer {
 
     zoomTo(newScale) {
         newScale = Math.max(0.25, Math.min(5.0, newScale));
-        if (newScale !== this.scale && this.isPdf) {
+        console.log('zoomTo called:', { newScale, currentScale: this.scale, isPdf: this.isPdf, hasPdfDoc: !!this.pdfDoc });
+        if (newScale !== this.scale && this.isPdf && this.pdfDoc) {
             this.scale = newScale;
             this.updateZoomDisplay();
             this.rerenderPdf();
@@ -130,6 +139,7 @@ class PaperViewer {
     async setPdfUrl(url, name = '') {
         this.isPdf = true;
         this.scale = 1.0;
+        this.currentHighlight = null; // Clear any previous highlight
         this.updateZoomDisplay();
 
         // Show PDF controls
@@ -271,6 +281,10 @@ class PaperViewer {
     async rerenderPdf() {
         if (this.pdfDoc) {
             await this.renderAllPages();
+            // Re-apply highlights after re-render (without scrolling)
+            if (this.currentHighlight) {
+                this.applyHighlight(this.currentHighlight.text, this.currentHighlight.targetPage, false);
+            }
         }
     }
 
@@ -302,6 +316,7 @@ class PaperViewer {
         this.isPdf = false;
         this.pdfDoc = null;
         this.pages = [];
+        this.currentHighlight = null;
 
         // Hide PDF controls
         const controls = document.getElementById('pdfControls');
@@ -318,26 +333,19 @@ class PaperViewer {
         }
     }
 
-    highlightText(text) {
+    highlightText(text, targetPage = null) {
         if (!text) return;
 
-        const escapedText = text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const regex = new RegExp(`(${escapedText})`, 'gi');
-
         if (this.isPdf) {
-            // Highlight in PDF text layers
-            this.pages.forEach(pageInfo => {
-                const spans = pageInfo.textLayerDiv.querySelectorAll('.pdf-text-item');
-                spans.forEach(span => {
-                    const originalText = span.textContent;
-                    if (regex.test(originalText)) {
-                        span.innerHTML = originalText.replace(regex, '<mark class="highlight">$1</mark>');
-                    }
-                });
-            });
+            // Store highlight state for persistence across zoom
+            this.currentHighlight = { text, targetPage };
+            // Apply highlight with scrolling
+            this.applyHighlight(text, targetPage, true);
         } else {
-            // Highlight in plain text
+            // Highlight in plain text - can do exact match
             if (!this.content) return;
+            const escapedText = text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const regex = new RegExp(`(${escapedText})`, 'gi');
             this.container.innerHTML = this.content.replace(
                 regex,
                 '<mark class="highlight">$1</mark>'
@@ -345,12 +353,164 @@ class PaperViewer {
         }
     }
 
+    // Apply highlight to PDF text layer (reusable for zoom persistence)
+    applyHighlight(text, targetPage, shouldScroll = true) {
+        // Get the page to highlight on
+        const pagesToSearch = targetPage
+            ? this.pages.filter(p => p.pageNum === targetPage)
+            : this.pages;
+
+        if (pagesToSearch.length === 0) return;
+
+        // Build a word set from the content for matching
+        const contentWords = this.extractContentWords(text);
+        if (contentWords.size === 0) return;
+
+        // Score each span by how many content words it contains
+        let scoredSpans = [];
+
+        pagesToSearch.forEach(pageInfo => {
+            const spans = pageInfo.textLayerDiv.querySelectorAll('.pdf-text-item');
+            spans.forEach((span, index) => {
+                const spanText = span.textContent.toLowerCase();
+                const spanWords = spanText.split(/\s+/).map(w => w.replace(/[^\w]/g, ''));
+
+                let score = 0;
+                spanWords.forEach(word => {
+                    if (word.length >= 4 && contentWords.has(word)) {
+                        score++;
+                    }
+                });
+
+                if (score > 0) {
+                    scoredSpans.push({
+                        span,
+                        index,
+                        pageNum: pageInfo.pageNum,
+                        score,
+                        top: parseFloat(span.style.top) || 0
+                    });
+                }
+            });
+        });
+
+        if (scoredSpans.length === 0) return;
+
+        // Sort by vertical position to find clusters
+        scoredSpans.sort((a, b) => a.top - b.top);
+
+        // Find the best cluster of consecutive spans (likely a paragraph)
+        let bestCluster = this.findBestCluster(scoredSpans);
+
+        // Highlight all spans in the best cluster
+        bestCluster.forEach(({ span }) => {
+            span.classList.add('section-highlight');
+        });
+
+        // Scroll to the first highlighted span (only on initial highlight, not on zoom)
+        if (shouldScroll && bestCluster.length > 0) {
+            this.scrollToPage(bestCluster[0].pageNum);
+            // Also scroll the span into view within the page
+            setTimeout(() => {
+                bestCluster[0].span.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }, 300);
+        }
+    }
+
+    // Extract significant words from content for matching
+    extractContentWords(text) {
+        const stopWords = new Set([
+            'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+            'of', 'with', 'by', 'from', 'is', 'are', 'was', 'were', 'be', 'been',
+            'being', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
+            'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need',
+            'that', 'which', 'who', 'whom', 'this', 'these', 'those', 'it', 'its',
+            'as', 'if', 'then', 'than', 'so', 'such', 'both', 'each', 'all', 'any',
+            'some', 'no', 'not', 'only', 'same', 'also', 'very', 'just', 'even',
+            'because', 'through', 'during', 'before', 'after', 'above', 'below',
+            'between', 'into', 'over', 'under', 'again', 'further', 'once', 'here',
+            'there', 'when', 'where', 'why', 'how', 'what', 'while', 'although',
+            'using', 'based', 'given', 'shown', 'used', 'since', 'thus', 'hence',
+            'paper', 'method', 'approach', 'results', 'figure', 'table', 'section'
+        ]);
+
+        const words = text.toLowerCase().split(/\s+/).map(w => w.replace(/[^\w]/g, ''));
+        const wordSet = new Set();
+
+        words.forEach(word => {
+            if (word.length >= 4 && !stopWords.has(word)) {
+                wordSet.add(word);
+            }
+        });
+
+        return wordSet;
+    }
+
+    // Find the best cluster of spans that likely form a paragraph
+    findBestCluster(scoredSpans) {
+        if (scoredSpans.length === 0) return [];
+        if (scoredSpans.length <= 3) return scoredSpans;
+
+        let bestCluster = [];
+        let bestScore = 0;
+
+        // Use sliding window to find best cluster
+        const windowSize = Math.min(10, scoredSpans.length);
+
+        for (let i = 0; i <= scoredSpans.length - windowSize; i++) {
+            const window = scoredSpans.slice(i, i + windowSize);
+
+            // Check if spans are vertically close (within ~100px of each other)
+            const topMin = window[0].top;
+            const topMax = window[window.length - 1].top;
+            const verticalSpread = topMax - topMin;
+
+            // Calculate total score for this window
+            const totalScore = window.reduce((sum, s) => sum + s.score, 0);
+
+            // Prefer tighter clusters with higher scores
+            const clusterScore = totalScore / (1 + verticalSpread / 100);
+
+            if (clusterScore > bestScore) {
+                bestScore = clusterScore;
+                bestCluster = window;
+            }
+        }
+
+        // Also include nearby spans with any matches
+        if (bestCluster.length > 0) {
+            const clusterTop = bestCluster[0].top;
+            const clusterBottom = bestCluster[bestCluster.length - 1].top;
+            const margin = 30; // Include spans within 30px
+
+            scoredSpans.forEach(span => {
+                if (!bestCluster.includes(span) &&
+                    span.top >= clusterTop - margin &&
+                    span.top <= clusterBottom + margin) {
+                    bestCluster.push(span);
+                }
+            });
+
+            // Re-sort by position
+            bestCluster.sort((a, b) => a.top - b.top);
+        }
+
+        return bestCluster;
+    }
+
     clearHighlights() {
+        // Clear stored highlight state
+        this.currentHighlight = null;
+
         if (this.isPdf) {
             // Re-render text layers without highlights
             this.pages.forEach(pageInfo => {
                 const spans = pageInfo.textLayerDiv.querySelectorAll('.pdf-text-item');
                 spans.forEach(span => {
+                    // Remove section highlight class
+                    span.classList.remove('section-highlight');
+
+                    // Remove mark elements
                     const marks = span.querySelectorAll('mark.highlight');
                     marks.forEach(mark => {
                         mark.replaceWith(mark.textContent);
@@ -359,6 +519,15 @@ class PaperViewer {
             });
         } else {
             this.container.textContent = this.content;
+        }
+    }
+
+    scrollToPage(pageNum) {
+        if (!this.isPdf || !this.pdfDoc) return;
+
+        const pageContainer = this.container.querySelector(`.pdf-page[data-page-num="${pageNum}"]`);
+        if (pageContainer) {
+            pageContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
     }
 }

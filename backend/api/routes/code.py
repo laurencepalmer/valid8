@@ -1,3 +1,4 @@
+import os
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 
 from backend.models.codebase import CodeLoadRequest, CodeLoadResponse
@@ -72,6 +73,37 @@ async def list_files():
             for f in app_state.codebase.files
         ]
     }
+
+
+@router.get("/tree")
+async def get_codebase_tree():
+    """Get hierarchical tree structure of codebase files."""
+    if app_state.codebase is None:
+        raise HTTPException(status_code=404, detail="No codebase loaded")
+
+    # Build tree structure from flat file list
+    tree = {}
+
+    for f in app_state.codebase.files:
+        # Use forward slash for consistent path handling across platforms
+        parts = f.relative_path.replace(os.sep, "/").split("/")
+        current = tree
+
+        for i, part in enumerate(parts[:-1]):  # Directories
+            if part not in current:
+                current[part] = {"_type": "directory", "_children": {}}
+            current = current[part]["_children"]
+
+        # File entry
+        filename = parts[-1]
+        current[filename] = {
+            "_type": "file",
+            "relative_path": f.relative_path,
+            "language": f.language,
+            "line_count": f.line_count,
+        }
+
+    return {"tree": tree, "name": app_state.codebase.name}
 
 
 @router.get("/file/{file_path:path}")

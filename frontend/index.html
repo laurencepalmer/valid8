@@ -56,7 +56,9 @@
 
         <!-- Main Content -->
         <main class="main-content">
-            <div class="workspace">
+            <!-- Unified Workspace: Paper (left) + Code (right) -->
+            <div id="workspace" class="workspace">
+                <!-- Left: Paper Panel -->
                 <div class="panel paper-panel">
                     <div class="panel-header">
                         <h2>Paper</h2>
@@ -66,24 +68,31 @@
                             <span id="zoomLevel">100%</span>
                             <button id="zoomIn" class="pdf-btn" title="Zoom In">+</button>
                         </div>
+                        <button id="clearPaperHighlights" class="clear-btn hidden" title="Clear highlights">Clear</button>
+                        <div class="query-history-dropdown">
+                            <button id="queryHistoryBtn" class="history-btn hidden" title="Query history">History</button>
+                            <div id="queryHistoryMenu" class="query-history-menu hidden"></div>
+                        </div>
                     </div>
                     <div id="paperContent" class="content-area">
                         <p class="placeholder">Upload a paper to view its content here. Select text to find related code.</p>
                     </div>
                 </div>
 
+                <!-- Right: Code Panel (browser + search results) -->
                 <div class="panel code-panel">
                     <div class="panel-header">
-                        <h2>Code References</h2>
+                        <h2>Code</h2>
+                        <span id="codebaseName" class="file-name"></span>
                         <div class="threshold-control">
                             <label for="thresholdSlider">Min Relevance:</label>
                             <input type="range" id="thresholdSlider" min="0" max="100" value="0" />
                             <span id="thresholdValue">0%</span>
                         </div>
-                        <span id="codeName" class="file-name"></span>
+                        <button id="clearCodeResults" class="clear-btn hidden" title="Clear results">Clear</button>
                     </div>
                     <div id="codeContent" class="content-area">
-                        <p class="placeholder">Load a codebase and highlight paper text to see related code.</p>
+                        <p class="placeholder">Load a codebase to browse files. Select text in either panel to find related content.</p>
                     </div>
                 </div>
             </div>
@@ -111,7 +120,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
     <script src="js/api.js"></script>
     <script src="js/paper-viewer.js"></script>
-    <script src="js/code-viewer.js"></script>
+    <script src="js/code-browser.js"></script>
     <script src="js/app.js"></script>
 </body>
 </html>

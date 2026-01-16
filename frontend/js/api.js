@@ -210,4 +210,66 @@ const api = {
 
         return response.json();
     },
+
+    // Code-to-PDF Search APIs
+    async getCodebaseTree() {
+        const response = await fetch(`${API_BASE}/code/tree`);
+
+        if (!response.ok) {
+            if (response.status === 404) return null;
+            const error = await response.json();
+            throw new Error(error.detail || 'Failed to get codebase tree');
+        }
+
+        return response.json();
+    },
+
+    async getPaperIndexStatus() {
+        const response = await fetch(`${API_BASE}/papers/index-status`);
+        return response.json();
+    },
+
+    // Store controller for code analysis
+    currentCodeAnalysisController: null,
+
+    async analyzeCodeHighlight(highlightedCode, filePath = null) {
+        // Cancel any existing request
+        if (this.currentCodeAnalysisController) {
+            this.currentCodeAnalysisController.abort();
+        }
+
+        this.currentCodeAnalysisController = new AbortController();
+
+        try {
+            const response = await fetch(`${API_BASE}/analysis/code-highlight`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    highlighted_code: highlightedCode,
+                    file_path: filePath,
+                }),
+                signal: this.currentCodeAnalysisController.signal,
+            });
+
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.detail || 'Failed to analyze code highlight');
+            }
+
+            return response.json();
+        } finally {
+            this.currentCodeAnalysisController = null;
+        }
+    },
+
+    cancelCodeAnalysis() {
+        if (this.currentCodeAnalysisController) {
+            this.currentCodeAnalysisController.abort();
+            this.currentCodeAnalysisController = null;
+            return true;
+        }
+        return false;
+    },
 };
