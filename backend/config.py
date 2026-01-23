@@ -23,7 +23,8 @@ class Settings(BaseSettings):
 
     # Embedding Configuration
     use_local_embeddings: bool = True
-    local_embedding_model: str = "all-MiniLM-L6-v2"
+    # paraphrase-MiniLM-L3-v2 is ~2x faster than all-MiniLM-L6-v2 with slightly lower quality
+    local_embedding_model: str = "paraphrase-MiniLM-L3-v2"
 
     # Storage
     chroma_persist_dir: str = "./data/chroma"

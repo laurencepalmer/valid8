@@ -50,6 +50,11 @@ app.include_router(papers.router, prefix="/api/papers", tags=["papers"])
 app.include_router(code.router, prefix="/api/code", tags=["code"])
 app.include_router(analysis.router, prefix="/api/analysis", tags=["analysis"])
 
+# Serve frontend static files
+frontend_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend")
+if os.path.exists(frontend_dir):
+    app.mount("/", StaticFiles(directory=frontend_dir, html=True), name="frontend")
+
 
 @app.get("/api/health")
 async def health_check():
