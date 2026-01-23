@@ -7,6 +7,8 @@ class PaperSection(BaseModel):
     start_idx: int
     end_idx: int
     page: Optional[int] = None
+    section_name: Optional[str] = None
+    section_type: Optional[str] = None  # "abstract", "body", "header", etc.
 
 
 class Paper(BaseModel):

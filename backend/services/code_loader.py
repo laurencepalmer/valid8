@@ -1,13 +1,15 @@
 import os
 import shutil
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Union
 from urllib.parse import urlparse
 
 from git import Repo
 
 from backend.config import get_settings
 from backend.models.codebase import Codebase, CodeFile, CodeChunk
+from backend.models.semantic_chunk import SemanticCodeChunk
+from backend.services.semantic_chunking import SemanticChunker
 
 
 LANGUAGE_MAP = {
@@ -154,6 +156,12 @@ def load_github_codebase(url: str) -> Codebase:
 def chunk_code(
     codebase: Codebase, chunk_size: int = 100, overlap: int = 20
 ) -> list[CodeChunk]:
+    """
+    Chunk code using naive line-based approach.
+
+    This is the legacy chunking method. For semantic chunking,
+    use chunk_code_semantic() instead.
+    """
     chunks = []
 
     for file in codebase.files:
@@ -179,6 +187,29 @@ def chunk_code(
             if end >= total_lines:
                 break
             start += chunk_size - overlap
+
+    return chunks
+
+
+def chunk_code_semantic(codebase: Codebase) -> list[SemanticCodeChunk]:
+    """
+    Chunk code using semantic AST-based approach.
+
+    This method extracts functions, classes, and methods as atomic units
+    with rich metadata for improved semantic search.
+
+    Args:
+        codebase: The Codebase to chunk
+
+    Returns:
+        List of SemanticCodeChunk objects with rich metadata
+    """
+    chunker = SemanticChunker()
+    chunks = []
+
+    for file in codebase.files:
+        file_chunks = chunker.chunk_file(file)
+        chunks.extend(file_chunks)
 
     return chunks
 
