@@ -1,10 +1,10 @@
 # Rough Roadmap for Valid8
 - [ ] PDF to Code Search/Code to PDF Search
-    - [ ] Improve Section Chunking  
-    - [ ] Selective embeddings over code 
+    - [x] Improve Section Chunking  
+    - [x] Selective embeddings over code 
     - [ ] Informed retrieval 
         - [ ] Lexical/Kword Sim
-        - [ ] Abstract Syntax Trees/Pseudo natural language 
+        - [x] Abstract Syntax Trees/Pseudo natural language descriptions
         - [ ] Test CrossModal models 
             - [ ] CodeBERT
             - [ ] GraphCodeBERT
