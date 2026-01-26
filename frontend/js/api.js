@@ -272,4 +272,126 @@ const api = {
         }
         return false;
     },
+
+    // ========== Audit API ==========
+
+    async startAudit(options = {}) {
+        const response = await fetch(`${API_BASE}/audit/run`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                description_source: options.descriptionSource || 'paper',
+                text_content: options.textContent || null,
+                focus_areas: options.focusAreas || null,
+                catastrophic_categories: options.catastrophicCategories || null,
+                min_tier: options.minTier || 'tier4',
+            }),
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || 'Failed to start audit');
+        }
+
+        return response.json();
+    },
+
+    async getAuditStatus(auditId) {
+        const response = await fetch(`${API_BASE}/audit/${auditId}/status`);
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || 'Failed to get audit status');
+        }
+
+        return response.json();
+    },
+
+    async getAuditReport(auditId) {
+        const response = await fetch(`${API_BASE}/audit/${auditId}/report`);
+
+        if (!response.ok) {
+            if (response.status === 202) {
+                return { status: 'running' };
+            }
+            const error = await response.json();
+            throw new Error(error.detail || 'Failed to get audit report');
+        }
+
+        return response.json();
+    },
+
+    async getAuditHistory() {
+        const response = await fetch(`${API_BASE}/audit/history`);
+        return response.json();
+    },
+
+    async deleteAudit(auditId) {
+        const response = await fetch(`${API_BASE}/audit/${auditId}`, {
+            method: 'DELETE',
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || 'Failed to delete audit');
+        }
+
+        return response.json();
+    },
+
+    // False Positive Management
+    async markFalsePositive(auditId, warningId, reason, appliesTo = 'this_audit') {
+        const response = await fetch(`${API_BASE}/audit/${auditId}/false-positive`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                warning_id: warningId,
+                reason: reason,
+                applies_to: appliesTo,
+            }),
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || 'Failed to mark false positive');
+        }
+
+        return response.json();
+    },
+
+    async getFalsePositives(codebaseHash = null) {
+        const url = codebaseHash
+            ? `${API_BASE}/audit/false-positives?codebase_hash=${codebaseHash}`
+            : `${API_BASE}/audit/false-positives`;
+        const response = await fetch(url);
+        return response.json();
+    },
+
+    async removeFalsePositive(fpId) {
+        const response = await fetch(`${API_BASE}/audit/false-positive/${fpId}`, {
+            method: 'DELETE',
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || 'Failed to remove false positive');
+        }
+
+        return response.json();
+    },
+
+    async compareAudits(baseId, compareId) {
+        const response = await fetch(`${API_BASE}/audit/compare/${baseId}/${compareId}`);
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || 'Failed to compare audits');
+        }
+
+        return response.json();
+    },
 };

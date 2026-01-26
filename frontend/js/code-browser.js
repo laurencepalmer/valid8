@@ -18,13 +18,13 @@ class CodeBrowser {
             }
         } catch (error) {
             console.error('Failed to load codebase tree:', error);
-            this.container.innerHTML = '<p class="placeholder">Failed to load codebase structure.</p>';
+            this.container.innerHTML = '<p class="error">Failed to load codebase structure.</p>';
         }
     }
 
     render() {
         if (!this.tree) {
-            this.container.innerHTML = '<p class="placeholder">Load a codebase to browse files.</p>';
+            this.container.innerHTML = '';
             return;
         }
 
@@ -38,7 +38,6 @@ class CodeBrowser {
                     <span class="file-info"></span>
                 </div>
                 <div class="code-browser-content">
-                    <p class="placeholder">Select a file to view its contents.</p>
                 </div>
             </div>
         `;
@@ -237,13 +236,13 @@ class CodeBrowser {
         const filteredRefs = references.filter(ref => ref.relevance_score >= threshold);
 
         if (!references || references.length === 0) {
-            contentArea.innerHTML = '<p class="placeholder">No relevant code found for the selected text.</p>';
+            contentArea.innerHTML = '<p class="no-results">No relevant code found for the selected text.</p>';
             return;
         }
 
         if (filteredRefs.length === 0) {
             const thresholdPercent = Math.round(threshold * 100);
-            contentArea.innerHTML = `<p class="placeholder">No code references meet the ${thresholdPercent}% relevance threshold.</p>`;
+            contentArea.innerHTML = `<p class="no-results">No code references meet the ${thresholdPercent}% relevance threshold.</p>`;
             return;
         }
 
@@ -289,13 +288,13 @@ class CodeBrowser {
         const filteredRefs = references.filter(ref => ref.relevance_score >= threshold);
 
         if (!references || references.length === 0) {
-            this.container.innerHTML = '<p class="placeholder">No relevant code found for the selected text.</p>';
+            this.container.innerHTML = '<p class="no-results">No relevant code found for the selected text.</p>';
             return;
         }
 
         if (filteredRefs.length === 0) {
             const thresholdPercent = Math.round(threshold * 100);
-            this.container.innerHTML = `<p class="placeholder">No code references meet the ${thresholdPercent}% relevance threshold.</p>`;
+            this.container.innerHTML = `<p class="no-results">No code references meet the ${thresholdPercent}% relevance threshold.</p>`;
             return;
         }
 
@@ -366,7 +365,7 @@ class CodeBrowser {
         this.codebaseName = null;
         this.currentFile = null;
         this.selectedFilePath = null;
-        this.container.innerHTML = '<p class="placeholder">Load a codebase to browse files.</p>';
+        this.container.innerHTML = '';
     }
 
     escapeHtml(text) {

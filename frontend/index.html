@@ -46,6 +46,18 @@
                     </div>
                     <div id="codeStatus" class="status"></div>
                 </div>
+
+                <div class="control-section audit-section">
+                    <h3>Audit</h3>
+                    <div class="input-stack">
+                        <button id="runAuditBtn" class="primary-btn full-width audit-btn">Run Audit</button>
+                        <div class="history-dropdown full-width">
+                            <button id="auditHistoryBtn" class="secondary-btn full-width">Audit History</button>
+                            <div id="auditHistoryMenu" class="history-menu hidden"></div>
+                        </div>
+                    </div>
+                    <div id="auditStatus" class="status"></div>
+                </div>
             </div>
         </aside>
 
@@ -115,10 +127,44 @@
         <button id="cancelRequestBtn" class="cancel-btn hidden">Cancel</button>
     </div>
 
+    <!-- Audit Results Modal -->
+    <div id="auditModal" class="modal hidden">
+        <div class="modal-content audit-modal-content">
+            <div class="audit-modal-header">
+                <h3>Audit Report</h3>
+                <button id="closeAuditModal" class="close-btn">&times;</button>
+            </div>
+            <div id="auditModalBody" class="audit-modal-body">
+                <!-- Audit content will be rendered here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- False Positive Modal -->
+    <div id="fpModal" class="modal hidden">
+        <div class="modal-content fp-modal-content">
+            <h3>Mark as False Positive</h3>
+            <p id="fpWarningDescription"></p>
+            <label for="fpReason">Reason:</label>
+            <textarea id="fpReason" placeholder="Why is this a false positive?"></textarea>
+            <label for="fpScope">Apply to:</label>
+            <select id="fpScope">
+                <option value="this_audit">This audit only</option>
+                <option value="this_codebase">This codebase (future audits)</option>
+                <option value="this_pattern">All codebases (this pattern)</option>
+            </select>
+            <div class="modal-actions">
+                <button id="cancelFpBtn" class="secondary-btn">Cancel</button>
+                <button id="submitFpBtn" class="primary-btn">Mark as False Positive</button>
+            </div>
+        </div>
+    </div>
+
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
     <script src="js/api.js"></script>
     <script src="js/paper-viewer.js"></script>
     <script src="js/code-browser.js"></script>
+    <script src="js/audit.js"></script>
     <script src="js/app.js"></script>
 </body>
 </html>

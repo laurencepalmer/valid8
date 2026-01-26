@@ -325,7 +325,7 @@ class PaperViewer {
         }
 
         this.container.classList.remove('pdf-viewer');
-        this.container.innerHTML = '<p class="placeholder">Upload a paper to view its content here. Select text to find related code.</p>';
+        this.container.innerHTML = '';
 
         const nameEl = document.getElementById('paperName');
         if (nameEl) {

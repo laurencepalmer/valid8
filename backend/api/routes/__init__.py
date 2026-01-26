@@ -1,3 +1,3 @@
-from backend.api.routes import papers, code, analysis
+from backend.api.routes import papers, code, analysis, audit
 
-__all__ = ["papers", "code", "analysis"]
+__all__ = ["papers", "code", "analysis", "audit"]

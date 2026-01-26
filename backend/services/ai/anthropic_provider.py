@@ -19,7 +19,7 @@ class AnthropicProvider(AIProvider):
         prompt: str,
         system_prompt: Optional[str] = None,
         max_tokens: int = 4096,
-        temperature: float = 0.0,
+        temperature: float = 1.0,
     ) -> str:
         kwargs = {
             "model": self.model,
