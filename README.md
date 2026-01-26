@@ -5,7 +5,8 @@ Research Paper & Code Alignment Checker - An AI-powered tool to verify alignment
 ## Features
 
 - **Paper-to-Code Mapping**: Upload a research paper (PDF or text), highlight sections, and see related code with line numbers
-- **Alignment Checking**: Write your own summary of what code should do, and check if the implementation matches
+- **Code-to-Paper Mapping**: Select code in the browser to find related paper sections
+- **Audit Mode**: Automatically verify code against paper claims, detect data leakage, evaluation errors, and other critical issues
 - **Multiple AI Providers**: Support for OpenAI, Anthropic, or local Ollama models
 - **Hybrid Embeddings**: Uses local sentence-transformers by default with API fallback
 
@@ -32,27 +33,17 @@ Edit `.env` to set your preferred provider:
 - **OpenAI**: Set `AI_PROVIDER=openai` and add your `OPENAI_API_KEY`
 - **Anthropic**: Set `AI_PROVIDER=anthropic` and add your `ANTHROPIC_API_KEY`
 
-### 3. Start the Backend
+### 3. Start the Server
 
 ```bash
 uvicorn backend.main:app --reload
 ```
 
-The API will be available at `http://localhost:8000`.
-
-### 4. Open the Frontend
-
-Open `frontend/index.html` in your browser, or serve it with:
-
-```bash
-python3 -m http.server 3000 --directory frontend
-```
-
-Then visit `http://localhost:3000`.
+Then visit `http://localhost:8000`.
 
 ## Usage
 
-### Highlight-to-Code Mode
+### Paper-to-Code Search
 
 1. Upload a research paper (PDF, TXT, MD, or TEX) or paste text directly
 2. Load a codebase by entering a local path or GitHub URL
@@ -60,15 +51,27 @@ Then visit `http://localhost:3000`.
 4. Select/highlight text in the paper
 5. View related code references with relevance scores
 
-### Alignment Check Mode
+### Code-to-Paper Search
 
-1. Load a codebase
-2. Switch to "Alignment Check" mode
-3. Write a summary describing what the code should do
-4. Click "Check Alignment" to see:
-   - Alignment score (0-100%)
-   - Issues found (missing, incorrect, or extra functionality)
-   - Suggestions for improvement
+1. Load both a paper and codebase
+2. Browse files in the code panel and select a file
+3. Highlight code to find related paper sections
+4. The paper will scroll to and highlight matching content
+
+### Audit Mode
+
+1. Load both a paper and codebase
+2. Click "Run Audit" in the sidebar
+3. The audit will automatically:
+   - Extract claims from the paper
+   - Analyze code behaviors
+   - Detect catastrophic patterns (data leakage, evaluation errors, etc.)
+   - Check alignment between claims and code
+4. View the report with:
+   - Overall alignment score
+   - Critical warnings (tiered by severity)
+   - Misalignments between paper and code
+   - Verified and unverified claims
 
 ## API Endpoints
 
@@ -77,8 +80,11 @@ Then visit `http://localhost:3000`.
 | `/api/papers/upload` | POST | Upload a paper file |
 | `/api/papers/text` | POST | Submit paper as text |
 | `/api/code/load` | POST | Load codebase (path or GitHub URL) |
-| `/api/analysis/highlight` | POST | Analyze highlighted text |
-| `/api/analysis/alignment` | POST | Check summary alignment |
+| `/api/analysis/highlight` | POST | Analyze highlighted paper text |
+| `/api/analysis/code-highlight` | POST | Analyze highlighted code |
+| `/api/audit/run` | POST | Start an audit |
+| `/api/audit/{id}/status` | GET | Get audit progress |
+| `/api/audit/{id}/report` | GET | Get audit report |
 | `/api/status` | GET | Get current system status |
 
 ## Project Structure

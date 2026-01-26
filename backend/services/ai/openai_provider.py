@@ -20,7 +20,7 @@ class OpenAIProvider(AIProvider):
         prompt: str,
         system_prompt: Optional[str] = None,
         max_tokens: int = 4096,
-        temperature: float = 0.0,
+        temperature: float = 1.0,
     ) -> str:
         messages = []
         if system_prompt:
@@ -31,6 +31,7 @@ class OpenAIProvider(AIProvider):
             model=self.model,
             messages=messages,
             max_completion_tokens=max_tokens,
+            temperature=temperature,
         )
         return response.choices[0].message.content or ""
 

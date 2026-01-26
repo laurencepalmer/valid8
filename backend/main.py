@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from backend.config import get_settings
-from backend.api.routes import papers, code, analysis
+from backend.api.routes import papers, code, analysis, audit
 from backend.services.logging import logger, setup_logging
 
 
@@ -49,11 +49,7 @@ app.add_middleware(
 app.include_router(papers.router, prefix="/api/papers", tags=["papers"])
 app.include_router(code.router, prefix="/api/code", tags=["code"])
 app.include_router(analysis.router, prefix="/api/analysis", tags=["analysis"])
-
-# Serve frontend static files
-frontend_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend")
-if os.path.exists(frontend_dir):
-    app.mount("/", StaticFiles(directory=frontend_dir, html=True), name="frontend")
+app.include_router(audit.router, prefix="/api/audit", tags=["audit"])
 
 
 @app.get("/api/health")
@@ -71,3 +67,9 @@ async def get_status():
         "codebase_path": app_state.codebase.path if app_state.codebase else None,
         "indexed": app_state.is_indexed,
     }
+
+
+# Serve frontend static files - MUST be last since it's a catch-all
+frontend_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend")
+if os.path.exists(frontend_dir):
+    app.mount("/", StaticFiles(directory=frontend_dir, html=True), name="frontend")
