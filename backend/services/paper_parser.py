@@ -680,7 +680,7 @@ def chunk_section(section: SemanticSection, max_tokens: int = 800) -> list[dict]
     current_chunk_parts: list[str] = []
     current_tokens = 0
     chunk_start_idx = section.start_idx
-    overlap_tokens = 50
+    overlap_tokens = 100  # Increased for better context continuity
     overlap_text = ""
 
     def finalize_chunk():

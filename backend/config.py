@@ -23,8 +23,23 @@ class Settings(BaseSettings):
 
     # Embedding Configuration
     use_local_embeddings: bool = True
-    # paraphrase-MiniLM-L3-v2 is ~2x faster than all-MiniLM-L6-v2 with slightly lower quality
-    local_embedding_model: str = "paraphrase-MiniLM-L3-v2"
+    # all-MiniLM-L6-v2 offers better semantic quality with same 384 dimensions
+    local_embedding_model: str = "all-MiniLM-L6-v2"
+
+    # Caching Configuration
+    embedding_cache_size: int = 1000  # LRU cache entries for embeddings
+    search_cache_size: int = 500  # TTL cache entries for search results
+    search_cache_ttl: int = 300  # 5 minutes TTL for search cache
+
+    # Reranking Configuration
+    use_reranking: bool = True
+    rerank_top_k: int = 20  # Re-rank top K results before returning
+    cross_encoder_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+
+    # HNSW Configuration
+    hnsw_m: int = 32  # Max connections per node
+    hnsw_construction_ef: int = 128  # Construction-time search breadth
+    hnsw_search_ef: int = 64  # Query-time search breadth
 
     # Storage
     chroma_persist_dir: str = "./data/chroma"

@@ -1,4 +1,8 @@
 from typing import Optional
+import hashlib
+import time
+from collections import OrderedDict
+from threading import Lock
 import chromadb
 from chromadb.config import Settings as ChromaSettings
 
@@ -8,6 +12,85 @@ from backend.models.paper import Paper
 from backend.models.semantic_chunk import SemanticCodeChunk
 from backend.services.code_loader import chunk_code, chunk_code_semantic
 from backend.services.state import app_state
+from backend.services.search.bm25_search import get_bm25_index
+
+
+class LRUCache:
+    """Thread-safe LRU cache for embeddings."""
+
+    def __init__(self, maxsize: int = 1000):
+        self.cache: OrderedDict[str, list[float]] = OrderedDict()
+        self.maxsize = maxsize
+        self.lock = Lock()
+
+    def _make_key(self, text: str) -> str:
+        """Create a hash key for a text."""
+        return hashlib.md5(text.encode()).hexdigest()
+
+    def get(self, text: str) -> Optional[list[float]]:
+        """Get cached embedding for text."""
+        key = self._make_key(text)
+        with self.lock:
+            if key in self.cache:
+                # Move to end (most recently used)
+                self.cache.move_to_end(key)
+                return self.cache[key]
+        return None
+
+    def put(self, text: str, embedding: list[float]) -> None:
+        """Cache an embedding."""
+        key = self._make_key(text)
+        with self.lock:
+            if key in self.cache:
+                self.cache.move_to_end(key)
+            else:
+                self.cache[key] = embedding
+                if len(self.cache) > self.maxsize:
+                    self.cache.popitem(last=False)
+
+
+class TTLCache:
+    """Thread-safe TTL cache for search results."""
+
+    def __init__(self, maxsize: int = 500, ttl: int = 300):
+        self.cache: dict[str, tuple[float, list[dict]]] = {}
+        self.maxsize = maxsize
+        self.ttl = ttl
+        self.lock = Lock()
+
+    def _make_key(self, query: str, n_results: int, collection: str, filters: Optional[dict]) -> str:
+        """Create a hash key for search parameters."""
+        filter_str = str(sorted(filters.items())) if filters else ""
+        key_str = f"{query}:{n_results}:{collection}:{filter_str}"
+        return hashlib.md5(key_str.encode()).hexdigest()
+
+    def get(self, query: str, n_results: int, collection: str, filters: Optional[dict]) -> Optional[list[dict]]:
+        """Get cached search results if not expired."""
+        key = self._make_key(query, n_results, collection, filters)
+        with self.lock:
+            if key in self.cache:
+                timestamp, results = self.cache[key]
+                if time.time() - timestamp < self.ttl:
+                    return results
+                else:
+                    del self.cache[key]
+        return None
+
+    def put(self, query: str, n_results: int, collection: str, filters: Optional[dict], results: list[dict]) -> None:
+        """Cache search results."""
+        key = self._make_key(query, n_results, collection, filters)
+        with self.lock:
+            # Evict expired entries if at capacity
+            if len(self.cache) >= self.maxsize:
+                now = time.time()
+                expired = [k for k, (ts, _) in self.cache.items() if now - ts >= self.ttl]
+                for k in expired:
+                    del self.cache[k]
+                # If still at capacity, remove oldest
+                if len(self.cache) >= self.maxsize:
+                    oldest = min(self.cache.items(), key=lambda x: x[1][0])
+                    del self.cache[oldest[0]]
+            self.cache[key] = (time.time(), results)
 
 
 class EmbeddingService:
@@ -18,6 +101,16 @@ class EmbeddingService:
         self._paper_collection = None
         self._device = None
         self.settings = get_settings()
+        # Initialize caches
+        self._embedding_cache = LRUCache(maxsize=self.settings.embedding_cache_size)
+        self._search_cache = TTLCache(
+            maxsize=self.settings.search_cache_size,
+            ttl=self.settings.search_cache_ttl
+        )
+        self._paper_search_cache = TTLCache(
+            maxsize=self.settings.search_cache_size,
+            ttl=self.settings.search_cache_ttl
+        )
 
     @property
     def device(self):
@@ -56,10 +149,31 @@ class EmbeddingService:
         return self._chroma_client
 
     def get_embeddings(self, texts: list[str]) -> list[list[float]]:
-        """Sync version - only works with local embeddings."""
+        """Sync version - only works with local embeddings. Uses LRU cache."""
         if self.settings.use_local_embeddings and self.local_model:
-            embeddings = self.local_model.encode(texts, convert_to_numpy=True)
-            return embeddings.tolist()
+            results: list[list[float]] = []
+            uncached_texts: list[str] = []
+            uncached_indices: list[int] = []
+
+            # Check cache for each text
+            for i, text in enumerate(texts):
+                cached = self._embedding_cache.get(text)
+                if cached is not None:
+                    results.append(cached)
+                else:
+                    results.append([])  # Placeholder
+                    uncached_texts.append(text)
+                    uncached_indices.append(i)
+
+            # Compute embeddings for uncached texts
+            if uncached_texts:
+                embeddings = self.local_model.encode(uncached_texts, convert_to_numpy=True)
+                for idx, (text, embedding) in enumerate(zip(uncached_texts, embeddings)):
+                    emb_list = embedding.tolist()
+                    self._embedding_cache.put(text, emb_list)
+                    results[uncached_indices[idx]] = emb_list
+
+            return results
 
         raise RuntimeError(
             "Sync get_embeddings() requires use_local_embeddings=True. "
@@ -67,9 +181,31 @@ class EmbeddingService:
         )
 
     async def get_embeddings_async(self, texts: list[str]) -> list[list[float]]:
+        """Async version with LRU cache support."""
         if self.settings.use_local_embeddings and self.local_model:
-            embeddings = self.local_model.encode(texts, convert_to_numpy=True)
-            return embeddings.tolist()
+            results: list[list[float]] = []
+            uncached_texts: list[str] = []
+            uncached_indices: list[int] = []
+
+            # Check cache for each text
+            for i, text in enumerate(texts):
+                cached = self._embedding_cache.get(text)
+                if cached is not None:
+                    results.append(cached)
+                else:
+                    results.append([])  # Placeholder
+                    uncached_texts.append(text)
+                    uncached_indices.append(i)
+
+            # Compute embeddings for uncached texts
+            if uncached_texts:
+                embeddings = self.local_model.encode(uncached_texts, convert_to_numpy=True)
+                for idx, (text, embedding) in enumerate(zip(uncached_texts, embeddings)):
+                    emb_list = embedding.tolist()
+                    self._embedding_cache.put(text, emb_list)
+                    results[uncached_indices[idx]] = emb_list
+
+            return results
 
         from backend.services.ai import get_ai_provider
 
@@ -98,7 +234,11 @@ class EmbeddingService:
 
         self._collection = self.chroma_client.create_collection(
             name=collection_name,
-            metadata={"hnsw:space": "cosine"},
+            metadata={
+                "hnsw:space": "cosine",
+                "hnsw:M": self.settings.hnsw_m,
+                "hnsw:construction_ef": self.settings.hnsw_construction_ef,
+            },
         )
 
         if use_semantic:
@@ -115,6 +255,9 @@ class EmbeddingService:
 
         total_chunks = len(chunks)
         app_state.set_index_progress(0, total_chunks)
+
+        # Collect all documents for BM25 indexing
+        all_bm25_docs: list[dict] = []
 
         batch_size = 500
         for i in range(0, len(chunks), batch_size):
@@ -147,7 +290,19 @@ class EmbeddingService:
                 metadatas=metadatas,
             )
 
+            # Collect for BM25
+            for j, doc in enumerate(documents):
+                all_bm25_docs.append({
+                    'id': ids[j],
+                    'document': doc,
+                    'metadata': metadatas[j],
+                })
+
             app_state.set_index_progress(min(i + batch_size, total_chunks), total_chunks)
+
+        # Build BM25 index
+        bm25_index = get_bm25_index()
+        bm25_index.build_code_index(all_bm25_docs)
 
     async def _index_semantic(self, codebase: Codebase):
         """Index using semantic AST-based chunking."""
@@ -158,6 +313,9 @@ class EmbeddingService:
 
         total_chunks = len(chunks)
         app_state.set_index_progress(0, total_chunks)
+
+        # Collect all documents for BM25 indexing
+        all_bm25_docs: list[dict] = []
 
         batch_size = 500
         for i in range(0, len(chunks), batch_size):
@@ -202,7 +360,19 @@ class EmbeddingService:
                 metadatas=metadatas,
             )
 
+            # Collect for BM25 (use search_text for better keyword matching)
+            for j, (chunk, search_text) in enumerate(zip(batch, search_texts)):
+                all_bm25_docs.append({
+                    'id': ids[j],
+                    'document': f"{search_text}\n{documents[j]}",  # Combine search text and content
+                    'metadata': metadatas[j],
+                })
+
             app_state.set_index_progress(min(i + batch_size, total_chunks), total_chunks)
+
+        # Build BM25 index
+        bm25_index = get_bm25_index()
+        bm25_index.build_code_index(all_bm25_docs)
 
     async def search_similar(
         self,
@@ -210,6 +380,7 @@ class EmbeddingService:
         n_results: int = 5,
         collection_name: str = "code_chunks",
         filters: Optional[dict] = None,
+        use_cache: bool = True,
     ) -> list[dict]:
         """
         Search for similar code chunks.
@@ -224,10 +395,17 @@ class EmbeddingService:
                     - {"symbol_type": "function"} - only functions
                     - {"has_error_handling": True} - only code with error handling
                     - {"$and": [{"language": "python"}, {"has_async": True}]}
+            use_cache: Whether to use TTL cache for results (default True)
 
         Returns:
             List of matching results with document, metadata, and similarity score
         """
+        # Check cache first
+        if use_cache:
+            cached = self._search_cache.get(query, n_results, collection_name, filters)
+            if cached is not None:
+                return cached
+
         if self._collection is None:
             try:
                 self._collection = self.chroma_client.get_collection(collection_name)
@@ -262,6 +440,10 @@ class EmbeddingService:
                     }
                 )
 
+        # Cache results
+        if use_cache and matches:
+            self._search_cache.put(query, n_results, collection_name, filters, matches)
+
         return matches
 
     async def search_similar_async(
@@ -285,7 +467,11 @@ class EmbeddingService:
 
         self._paper_collection = self.chroma_client.create_collection(
             name=collection_name,
-            metadata={"hnsw:space": "cosine"},
+            metadata={
+                "hnsw:space": "cosine",
+                "hnsw:M": self.settings.hnsw_m,
+                "hnsw:construction_ef": self.settings.hnsw_construction_ef,
+            },
         )
 
         chunks = chunk_paper(paper)
@@ -297,14 +483,26 @@ class EmbeddingService:
         total_chunks = len(chunks)
         app_state.set_paper_index_progress(0, total_chunks)
 
+        # Collect all documents for BM25 indexing
+        all_bm25_docs: list[dict] = []
+
         batch_size = 100
         for i in range(0, len(chunks), batch_size):
             batch = chunks[i : i + batch_size]
 
-            documents = [
-                f"Paper: {paper.name}\nPage {c.get('page', 'N/A')}:\n{c['content']}"
-                for c in batch
-            ]
+            # Include section metadata in embedded text for better semantic matching
+            documents = []
+            for c in batch:
+                section_name = c.get("section_name", "")
+                section_type = c.get("section_type", "")
+                section_prefix = ""
+                if section_name:
+                    section_prefix = f"Section: {section_name}"
+                    if section_type:
+                        section_prefix += f" ({section_type})"
+                    section_prefix += "\n"
+                doc = f"Paper: {paper.name}\nPage {c.get('page', 'N/A')}\n{section_prefix}{c['content']}"
+                documents.append(doc)
 
             embeddings = await self.get_embeddings_async(documents)
 
@@ -316,6 +514,8 @@ class EmbeddingService:
                     "page": c.get("page") or 0,  # ChromaDB doesn't accept None
                     "start_idx": c["start_idx"],
                     "end_idx": c["end_idx"],
+                    "section_name": c.get("section_name") or "",
+                    "section_type": c.get("section_type") or "",
                 }
                 for c in batch
             ]
@@ -327,16 +527,38 @@ class EmbeddingService:
                 metadatas=metadatas,
             )
 
+            # Collect for BM25
+            for j, doc in enumerate(documents):
+                all_bm25_docs.append({
+                    'id': ids[j],
+                    'document': doc,
+                    'metadata': metadatas[j],
+                })
+
             app_state.set_paper_index_progress(
                 min(i + batch_size, total_chunks), total_chunks
             )
 
+        # Build BM25 index for papers
+        bm25_index = get_bm25_index()
+        bm25_index.build_paper_index(all_bm25_docs)
+
         app_state.set_paper_indexed(True)
 
     async def search_paper_similar(
-        self, query: str, n_results: int = 5, collection_name: str = "paper_chunks"
+        self,
+        query: str,
+        n_results: int = 5,
+        collection_name: str = "paper_chunks",
+        use_cache: bool = True,
     ) -> list[dict]:
         """Search for similar paper sections given a code query."""
+        # Check cache first
+        if use_cache:
+            cached = self._paper_search_cache.get(query, n_results, collection_name, None)
+            if cached is not None:
+                return cached
+
         if self._paper_collection is None:
             try:
                 self._paper_collection = self.chroma_client.get_collection(
@@ -367,6 +589,10 @@ class EmbeddingService:
                         "similarity": similarity,
                     }
                 )
+
+        # Cache results
+        if use_cache and matches:
+            self._paper_search_cache.put(query, n_results, collection_name, None, matches)
 
         return matches
 

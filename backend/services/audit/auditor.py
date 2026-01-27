@@ -1,5 +1,6 @@
 """Main audit orchestrator."""
 
+import asyncio
 import uuid
 from datetime import datetime
 from typing import Optional
@@ -108,31 +109,39 @@ class Auditor:
             logger.info(f"Audit {audit_id}: Extracted {len(claims)} claims")
             report.progress = 0.25
 
-            # Step 3: Analyze code behaviors
-            report.current_step = "Analyzing code behaviors"
-            behaviors = await self.code_analyzer.analyze_codebase(
-                codebase,
-                claim_types=[c.claim_type for c in claims],
+            # Step 3 & 4: Run code analysis and catastrophic detection in PARALLEL
+            # These are independent operations that can run concurrently for speed
+            report.current_step = "Analyzing code and detecting issues"
+
+            async def analyze_code():
+                return await self.code_analyzer.analyze_codebase(
+                    codebase,
+                    claim_types=[c.claim_type for c in claims],
+                )
+
+            async def detect_catastrophic():
+                return await self.catastrophic_detector.detect_all(
+                    codebase,
+                    categories=request.catastrophic_categories,
+                )
+
+            behaviors, warnings = await asyncio.gather(
+                analyze_code(),
+                detect_catastrophic(),
             )
+
             logger.info(f"Audit {audit_id}: Analyzed {len(behaviors)} code behaviors")
-            report.progress = 0.45
-
-            # Step 4: Detect catastrophic patterns
-            report.current_step = "Detecting catastrophic patterns"
-            warnings = await self.catastrophic_detector.detect_all(
-                codebase,
-                categories=request.catastrophic_categories,
-            )
             logger.info(f"Audit {audit_id}: Detected {len(warnings)} potential issues")
+            report.progress = 0.55
 
-            # Filter by false positives
+            # Filter warnings by false positives and minimum tier
+            report.current_step = "Filtering warnings"
             warnings = self.fp_store.filter_warnings(
                 warnings,
                 audit_id=audit_id,
                 codebase_hash=self._hash_codebase(codebase),
             )
 
-            # Filter by minimum tier
             warnings = [
                 w for w in warnings
                 if self._tier_value(w.tier) <= self._tier_value(request.min_tier)
@@ -140,7 +149,7 @@ class Auditor:
             logger.info(f"Audit {audit_id}: {len(warnings)} warnings after filtering")
 
             report.catastrophic_warnings = warnings
-            report.progress = 0.65
+            report.progress = 0.60
 
             # Step 5: Check alignment
             report.current_step = "Checking alignment"
