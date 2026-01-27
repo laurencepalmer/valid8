@@ -1,6 +1,7 @@
 import json
 from typing import Optional
 
+from backend.config import get_settings
 from backend.models.analysis import (
     CodeReference,
     HighlightAnalysisResponse,
@@ -13,6 +14,7 @@ from backend.models.codebase import Codebase
 from backend.models.paper import Paper
 from backend.services.ai import get_ai_provider
 from backend.services.embeddings import get_embedding_service
+from backend.services.search import get_hybrid_searcher, get_reranker
 from backend.services.state import app_state
 
 
@@ -88,10 +90,40 @@ async def analyze_highlight(
     if codebase is None:
         raise ValueError("No codebase loaded")
 
+    settings = get_settings()
     embedding_service = get_embedding_service()
-    similar_chunks = await embedding_service.search_similar_async(
-        highlighted_text, n_results=n_results
+
+    # Get more results for hybrid search and reranking
+    rerank_k = settings.rerank_top_k if settings.use_reranking else n_results
+    embedding_results = await embedding_service.search_similar_async(
+        highlighted_text, n_results=rerank_k
     )
+
+    if not embedding_results:
+        return HighlightAnalysisResponse(
+            highlighted_text=highlighted_text,
+            code_references=[],
+            summary="No relevant code found for the highlighted text.",
+        )
+
+    # Apply hybrid search (combine embedding with BM25)
+    hybrid_searcher = get_hybrid_searcher()
+    similar_chunks = await hybrid_searcher.search_code_hybrid(
+        query=highlighted_text,
+        embedding_results=embedding_results,
+        n_results=rerank_k,
+    )
+
+    # Apply reranking if enabled
+    if settings.use_reranking and similar_chunks:
+        reranker = get_reranker()
+        similar_chunks = reranker.rerank_for_code(
+            highlighted_text=highlighted_text,
+            code_results=similar_chunks,
+            top_k=n_results,
+        )
+    else:
+        similar_chunks = similar_chunks[:n_results]
 
     if not similar_chunks:
         return HighlightAnalysisResponse(
@@ -296,10 +328,40 @@ async def analyze_code_highlight(
     if paper is None:
         raise ValueError("No paper loaded")
 
+    settings = get_settings()
     embedding_service = get_embedding_service()
-    similar_sections = await embedding_service.search_paper_similar(
-        highlighted_code, n_results=n_results
+
+    # Get more results for hybrid search and reranking
+    rerank_k = settings.rerank_top_k if settings.use_reranking else n_results
+    embedding_results = await embedding_service.search_paper_similar(
+        highlighted_code, n_results=rerank_k
     )
+
+    if not embedding_results:
+        return CodeHighlightAnalysisResponse(
+            highlighted_code=highlighted_code,
+            paper_references=[],
+            summary="No relevant paper sections found for the highlighted code.",
+        )
+
+    # Apply hybrid search (combine embedding with BM25)
+    hybrid_searcher = get_hybrid_searcher()
+    similar_sections = await hybrid_searcher.search_paper_hybrid(
+        query=highlighted_code,
+        embedding_results=embedding_results,
+        n_results=rerank_k,
+    )
+
+    # Apply reranking if enabled
+    if settings.use_reranking and similar_sections:
+        reranker = get_reranker()
+        similar_sections = reranker.rerank_for_paper(
+            code_snippet=highlighted_code,
+            paper_results=similar_sections,
+            top_k=n_results,
+        )
+    else:
+        similar_sections = similar_sections[:n_results]
 
     if not similar_sections:
         return CodeHighlightAnalysisResponse(

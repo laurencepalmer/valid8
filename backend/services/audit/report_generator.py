@@ -238,6 +238,12 @@ class ReportGenerator:
         Calculate an overall alignment score (0-100).
 
         Higher score = better alignment.
+
+        Scoring approach:
+        - Alignment is calculated only on verifiable claims (aligned + misaligned)
+        - Unverified claims don't penalize the score (they indicate code coverage gaps)
+        - Misalignments and warnings apply tier-based penalties
+        - Critical (tier1) issues cap the maximum score
         """
         if total_claims == 0:
             # Only based on warnings if no claims
@@ -245,44 +251,62 @@ class ReportGenerator:
                 return 100.0
             tier1_count = sum(1 for w in warnings if w.tier == IssueTier.RESULTS_INVALID)
             if tier1_count > 0:
-                return 0.0
-            return max(0, 100 - len(warnings) * 10)
+                return 25.0  # Still give some score, but capped low
+            return max(50, 100 - len(warnings) * 10)
 
-        # Base score from alignment (50% weight)
-        alignment_score = (aligned_count / total_claims) * 100 if total_claims > 0 else 100
-        alignment_contribution = alignment_score * 0.5
+        # Calculate verifiable claims (claims we could actually check)
+        verifiable_count = aligned_count + misaligned_count
 
-        # Penalty for misalignments based on tier (25% weight)
+        # Base score from alignment (60% weight)
+        # Only consider claims that could be verified - unverified claims don't hurt the score
+        if verifiable_count > 0:
+            alignment_ratio = aligned_count / verifiable_count
+        else:
+            # No claims could be verified - give benefit of doubt with moderate score
+            alignment_ratio = 0.7
+
+        alignment_contribution = alignment_ratio * 60
+
+        # Penalty for misalignments based on tier (20% weight)
+        # Scale penalty by number of misalignments relative to total verifiable
         misalignment_penalty = 0
         for result in alignment_results:
             if result.status == AlignmentStatus.MISALIGNED:
                 tier_penalty = {
-                    IssueTier.RESULTS_INVALID: 25,
-                    IssueTier.RESULTS_QUESTIONABLE: 15,
-                    IssueTier.REPRODUCIBILITY_RISK: 8,
-                    IssueTier.MINOR_DISCREPANCY: 3,
+                    IssueTier.RESULTS_INVALID: 20,
+                    IssueTier.RESULTS_QUESTIONABLE: 12,
+                    IssueTier.REPRODUCIBILITY_RISK: 6,
+                    IssueTier.MINOR_DISCREPANCY: 2,
                 }
-                misalignment_penalty += tier_penalty.get(result.tier, 5)
+                misalignment_penalty += tier_penalty.get(result.tier, 4)
 
-        misalignment_contribution = max(0, 25 - misalignment_penalty)
+        misalignment_contribution = max(0, 20 - misalignment_penalty)
 
-        # Penalty for catastrophic warnings (25% weight)
+        # Penalty for catastrophic warnings (20% weight)
         warning_penalty = 0
         for warning in warnings:
             tier_penalty = {
-                IssueTier.RESULTS_INVALID: 25,
-                IssueTier.RESULTS_QUESTIONABLE: 12,
-                IssueTier.REPRODUCIBILITY_RISK: 5,
-                IssueTier.MINOR_DISCREPANCY: 2,
+                IssueTier.RESULTS_INVALID: 20,
+                IssueTier.RESULTS_QUESTIONABLE: 10,
+                IssueTier.REPRODUCIBILITY_RISK: 4,
+                IssueTier.MINOR_DISCREPANCY: 1,
             }
             warning_penalty += tier_penalty.get(warning.tier, 2)
 
-        warning_contribution = max(0, 25 - warning_penalty)
+        warning_contribution = max(0, 20 - warning_penalty)
 
         # Total score
         total_score = alignment_contribution + misalignment_contribution + warning_contribution
 
-        # If any tier 1 issues, cap score at 30
+        # Apply coverage bonus/penalty based on how many claims could be verified
+        # This encourages comprehensive code coverage without being too punishing
+        if total_claims > 0:
+            coverage_ratio = verifiable_count / total_claims
+            # Coverage affects a small portion of the score (up to ±10 points)
+            coverage_modifier = (coverage_ratio - 0.5) * 20  # Range: -10 to +10
+            total_score += coverage_modifier
+
+        # If any tier 1 issues, cap score at 40 (was 30, slightly more lenient)
         has_tier1 = any(w.tier == IssueTier.RESULTS_INVALID for w in warnings)
         has_tier1 = has_tier1 or any(
             r.tier == IssueTier.RESULTS_INVALID
@@ -291,7 +315,7 @@ class ReportGenerator:
         )
 
         if has_tier1:
-            total_score = min(total_score, 30)
+            total_score = min(total_score, 40)
 
         return round(max(0, min(100, total_score)), 1)
 
