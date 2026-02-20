@@ -18,6 +18,12 @@ GitPython>=3.1.41
 sentence-transformers>=2.3.0
 chromadb>=0.4.22
 rank-bm25>=0.2.2
+transformers>=4.35.0
+einops>=0.7.0  # Required by Jina reranker
+
+# MLX (Apple Silicon only — install via: pip install -r requirements-mlx.txt)
+# mlx>=0.22.0
+# mlx-lm>=0.21.0
 
 # Utilities
 python-dotenv>=1.0.0

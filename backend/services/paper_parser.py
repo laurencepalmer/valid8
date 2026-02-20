@@ -127,6 +127,30 @@ REFERENCES_PATTERNS = [
     r"^\s*\d+\.?\s+references?\s*$",
 ]
 
+SECTION_CHUNK_TIERS = {
+    # Tier 1 — fine-grained (400 tokens)
+    "methods": 400, "method": 400, "methodology": 400,
+    "experiments": 400, "experiment": 400, "implementation": 400,
+    # Tier 2 — medium (600 tokens)
+    "ablation": 600, "ablation study": 600, "ablation studies": 600,
+    "discussion": 600, "analysis": 600, "evaluation": 600, "results": 600,
+    # Tier 3 — coarse (1000 tokens)
+    "abstract": 1000, "introduction": 1000, "background": 1000,
+    "related work": 1000, "conclusion": 1000, "conclusions": 1000,
+}
+DEFAULT_CHUNK_MAX_TOKENS = 800
+
+
+def _get_section_max_tokens(section_name: str) -> int:
+    """Return chunk max_tokens based on section name tier."""
+    name_lower = re.sub(r"^\d+\.?\s*", "", section_name.strip().lower()).strip()
+    if name_lower in SECTION_CHUNK_TIERS:
+        return SECTION_CHUNK_TIERS[name_lower]
+    for keyword, tokens in SECTION_CHUNK_TIERS.items():
+        if keyword in name_lower:
+            return tokens
+    return DEFAULT_CHUNK_MAX_TOKENS
+
 
 # =============================================================================
 # Extraction Layer
@@ -946,7 +970,8 @@ def chunk_paper(
                     end_idx=section.end_idx,
                 )
 
-                section_chunks = chunk_section(semantic_section, max_tokens)
+                tier_max_tokens = _get_section_max_tokens(semantic_section.name)
+                section_chunks = chunk_section(semantic_section, tier_max_tokens)
                 chunks.extend(section_chunks)
         else:
             # Fall back to page-based chunking for PDFs without semantic sections

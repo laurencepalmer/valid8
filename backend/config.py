@@ -5,7 +5,7 @@ from functools import lru_cache
 
 class Settings(BaseSettings):
     # AI Provider Configuration
-    ai_provider: Literal["openai", "anthropic", "ollama"] = "ollama"
+    ai_provider: Literal["openai", "anthropic", "ollama", "mlx"] = "ollama"
 
     # OpenAI
     openai_api_key: Optional[str] = None
@@ -18,13 +18,16 @@ class Settings(BaseSettings):
 
     # Ollama
     ollama_base_url: str = "http://localhost:11434"
-    ollama_model: str = "llama3.2"
+    ollama_model: str = "qwen3:8b"
     ollama_embedding_model: str = "nomic-embed-text"
+
+    # MLX (Apple Silicon only)
+    mlx_model: str = "mlx-community/Qwen2.5-7B-Instruct-4bit"
 
     # Embedding Configuration
     use_local_embeddings: bool = True
-    # all-MiniLM-L6-v2 offers better semantic quality with same 384 dimensions
-    local_embedding_model: str = "all-MiniLM-L6-v2"
+    local_embedding_model: str = "all-mpnet-base-v2"
+    local_embedding_dim: int = 768
 
     # Caching Configuration
     embedding_cache_size: int = 1000  # LRU cache entries for embeddings
@@ -34,7 +37,7 @@ class Settings(BaseSettings):
     # Reranking Configuration
     use_reranking: bool = True
     rerank_top_k: int = 20  # Re-rank top K results before returning
-    cross_encoder_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    cross_encoder_model: str = "jinaai/jina-reranker-v2-base-multilingual"
 
     # HNSW Configuration
     hnsw_m: int = 32  # Max connections per node

@@ -18,12 +18,12 @@ class BM25Index:
         self.settings = get_settings()
 
     def _tokenize(self, text: str) -> list[str]:
-        """Tokenize text for BM25 indexing."""
-        # Convert to lowercase
-        text = text.lower()
-        # Split on non-alphanumeric characters
-        tokens = re.findall(r'\b\w+\b', text)
-        # Filter very short tokens and common stop words
+        """Tokenize text for BM25 indexing.
+
+        Code-aware: keeps compound terms (window_partition) as whole tokens
+        AND splits into parts, handles camelCase, and allows single-char tokens
+        (tensor dimension names like B, H, W, C are common in ML papers/code).
+        """
         stop_words = {
             'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
             'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
@@ -31,7 +31,33 @@ class BM25Index:
             'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'this',
             'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it', 'we', 'they',
         }
-        return [t for t in tokens if len(t) > 1 and t not in stop_words]
+
+        # Extract raw tokens (including single chars)
+        raw_tokens = re.findall(r'\b\w+\b', text)
+
+        tokens = []
+        for tok in raw_tokens:
+            lower = tok.lower()
+            if lower in stop_words:
+                continue
+
+            # Keep the whole token (e.g. "window_partition")
+            tokens.append(lower)
+
+            # Split snake_case compounds into parts
+            if '_' in lower:
+                parts = [p for p in lower.split('_') if p and p not in stop_words]
+                tokens.extend(parts)
+
+            # Split camelCase / PascalCase into parts
+            camel_parts = re.sub(r'([a-z])([A-Z])', r'\1_\2', tok)
+            camel_parts = re.sub(r'([A-Z]+)([A-Z][a-z])', r'\1_\2', camel_parts)
+            if '_' in camel_parts:
+                parts = [p.lower() for p in camel_parts.split('_') if p]
+                parts = [p for p in parts if p not in stop_words]
+                tokens.extend(parts)
+
+        return tokens
 
     def build_code_index(self, documents: list[dict]) -> None:
         """

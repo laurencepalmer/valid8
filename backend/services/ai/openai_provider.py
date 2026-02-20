@@ -21,18 +21,31 @@ class OpenAIProvider(AIProvider):
         system_prompt: Optional[str] = None,
         max_tokens: int = 4096,
         temperature: float = 1.0,
+        response_format: Optional[dict] = None,
     ) -> str:
         messages = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
 
-        response = await self.client.chat.completions.create(
-            model=self.model,
-            messages=messages,
-            max_completion_tokens=max_tokens,
-            temperature=temperature,
-        )
+        kwargs = {
+            "model": self.model,
+            "messages": messages,
+            "max_completion_tokens": max_tokens,
+            "temperature": temperature,
+        }
+
+        if response_format:
+            kwargs["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "response",
+                    "strict": True,
+                    "schema": response_format,
+                },
+            }
+
+        response = await self.client.chat.completions.create(**kwargs)
         return response.choices[0].message.content or ""
 
     async def get_embeddings(self, texts: list[str]) -> list[list[float]]:

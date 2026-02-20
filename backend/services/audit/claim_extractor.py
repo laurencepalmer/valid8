@@ -222,7 +222,7 @@ class ClaimExtractor:
         prompt = CLAIM_EXTRACTION_PROMPT.format(text=text)
 
         response = await self.ai_provider.complete(
-            prompt=prompt,
+            prompt=prompt, temperature=0.0,
         )
 
         return self._parse_claims(response)
@@ -282,7 +282,7 @@ class ClaimExtractor:
                 prompt = CLAIM_EXTRACTION_PROMPT.format(text=section_text)
 
                 try:
-                    response = await self.ai_provider.complete(prompt=prompt)
+                    response = await self.ai_provider.complete(prompt=prompt, temperature=0.0)
                     section_claims = self._parse_claims(response)
 
                     # Add source location

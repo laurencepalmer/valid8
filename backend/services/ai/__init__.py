@@ -2,6 +2,7 @@ from backend.services.ai.base import AIProvider
 from backend.services.ai.openai_provider import OpenAIProvider
 from backend.services.ai.anthropic_provider import AnthropicProvider
 from backend.services.ai.ollama_provider import OllamaProvider
+from backend.services.ai.mlx_provider import MLXProvider
 from backend.config import get_settings
 
 
@@ -19,6 +20,8 @@ def get_ai_provider() -> AIProvider:
         return AnthropicProvider()
     elif provider_name == "ollama":
         return OllamaProvider()
+    elif provider_name == "mlx":
+        return MLXProvider()
     else:
         raise ValueError(f"Unknown AI provider: {provider_name}")
 
@@ -28,5 +31,6 @@ __all__ = [
     "OpenAIProvider",
     "AnthropicProvider",
     "OllamaProvider",
+    "MLXProvider",
     "get_ai_provider",
 ]

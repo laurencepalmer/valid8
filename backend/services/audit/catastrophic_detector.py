@@ -687,7 +687,7 @@ class CatastrophicDetector:
 
         try:
             response = await self.ai_provider.complete(
-                prompt=prompt,
+                prompt=prompt, temperature=0.0,
             )
 
             return self._parse_llm_response(response, file)
@@ -718,7 +718,7 @@ class CatastrophicDetector:
                     file_path=f"{file.relative_path} (lines {offset+1}-{offset+num_lines})",
                 )
                 try:
-                    response = await self.ai_provider.complete(prompt=prompt)
+                    response = await self.ai_provider.complete(prompt=prompt, temperature=0.0)
                     return self._parse_llm_response(response, file, line_offset=offset)
                 except Exception:
                     return []

@@ -415,7 +415,7 @@ class AlignmentChecker:
 
         try:
             response = await self.ai_provider.complete(
-                prompt=prompt,
+                prompt=prompt, temperature=0.0,
             )
 
             return self._parse_response(response, claim, behaviors)

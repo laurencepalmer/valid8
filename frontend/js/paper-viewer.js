@@ -31,12 +31,9 @@ class PaperViewer {
         const zoomIn = document.getElementById('zoomIn');
         const zoomOut = document.getElementById('zoomOut');
 
-        console.log('setupPdfControls:', { zoomIn: !!zoomIn, zoomOut: !!zoomOut });
-
         if (zoomIn) {
             zoomIn.addEventListener('click', (e) => {
                 e.stopPropagation();
-                console.log('Zoom in clicked, current scale:', this.scale);
                 this.zoomTo(this.scale + 0.25);
             });
         }
@@ -44,7 +41,6 @@ class PaperViewer {
         if (zoomOut) {
             zoomOut.addEventListener('click', (e) => {
                 e.stopPropagation();
-                console.log('Zoom out clicked, current scale:', this.scale);
                 this.zoomTo(this.scale - 0.25);
             });
         }
@@ -64,6 +60,9 @@ class PaperViewer {
                 const newScale = Math.max(0.25, Math.min(5.0, this.scale + zoomDelta));
 
                 if (newScale !== this.scale) {
+                    if (!this._preZoomScale) {
+                        this._preZoomScale = this.scale;
+                    }
                     this.scale = newScale;
                     this.updateZoomDisplay();
 
@@ -72,7 +71,9 @@ class PaperViewer {
                         clearTimeout(this.zoomTimeout);
                     }
                     this.zoomTimeout = setTimeout(() => {
-                        this.rerenderPdf();
+                        const oldScale = this._preZoomScale;
+                        this._preZoomScale = null;
+                        this.rerenderPdf(oldScale);
                     }, 100);
                 }
             }
@@ -99,6 +100,9 @@ class PaperViewer {
                 const newScale = Math.max(0.25, Math.min(5.0, initialScale * scaleFactor));
 
                 if (newScale !== this.scale) {
+                    if (!this._preZoomScale) {
+                        this._preZoomScale = this.scale;
+                    }
                     this.scale = newScale;
                     this.updateZoomDisplay();
 
@@ -106,7 +110,9 @@ class PaperViewer {
                         clearTimeout(this.zoomTimeout);
                     }
                     this.zoomTimeout = setTimeout(() => {
-                        this.rerenderPdf();
+                        const oldScale = this._preZoomScale;
+                        this._preZoomScale = null;
+                        this.rerenderPdf(oldScale);
                     }, 100);
                 }
             }
@@ -121,11 +127,11 @@ class PaperViewer {
 
     zoomTo(newScale) {
         newScale = Math.max(0.25, Math.min(5.0, newScale));
-        console.log('zoomTo called:', { newScale, currentScale: this.scale, isPdf: this.isPdf, hasPdfDoc: !!this.pdfDoc });
         if (newScale !== this.scale && this.isPdf && this.pdfDoc) {
+            const oldScale = this.scale;
             this.scale = newScale;
             this.updateZoomDisplay();
-            this.rerenderPdf();
+            this.rerenderPdf(oldScale);
         }
     }
 
@@ -278,13 +284,80 @@ class PaperViewer {
         });
     }
 
-    async rerenderPdf() {
-        if (this.pdfDoc) {
-            await this.renderAllPages();
-            // Re-apply highlights after re-render (without scrolling)
-            if (this.currentHighlight) {
-                this.applyHighlight(this.currentHighlight.text, this.currentHighlight.targetPage, false);
+    getVisiblePageInfo() {
+        const scrollMid = this.container.scrollTop + this.container.clientHeight / 2;
+
+        for (const pageInfo of this.pages) {
+            const pageEl = pageInfo.canvas.parentElement;
+            const pageTop = pageEl.offsetTop;
+            const pageBottom = pageTop + pageEl.offsetHeight;
+
+            if (scrollMid >= pageTop && scrollMid <= pageBottom) {
+                const offsetRatio = (scrollMid - pageTop) / pageEl.offsetHeight;
+                return { pageNum: pageInfo.pageNum, offsetRatio };
             }
+        }
+
+        return { pageNum: 1, offsetRatio: 0 };
+    }
+
+    async rerenderPdf(oldScale) {
+        if (!this.pdfDoc || this.pages.length === 0) return;
+
+        // Track which page and position within it the user is viewing
+        const { pageNum, offsetRatio } = this.getVisiblePageInfo();
+
+        // Lock overflow to prevent browser from resetting scroll during canvas resizes
+        this.container.style.overflow = 'hidden';
+
+        // Re-render each page in place — no DOM destruction
+        for (const pageInfo of this.pages) {
+            const viewport = pageInfo.page.getViewport({ scale: this.scale });
+
+            // Update canvas
+            const canvas = pageInfo.canvas;
+            const context = canvas.getContext('2d');
+            canvas.width = viewport.width;
+            canvas.height = viewport.height;
+
+            await pageInfo.page.render({
+                canvasContext: context,
+                viewport: viewport,
+            }).promise;
+
+            // Update text layer
+            pageInfo.textLayerDiv.style.width = `${viewport.width}px`;
+            pageInfo.textLayerDiv.style.height = `${viewport.height}px`;
+
+            const textContent = await pageInfo.page.getTextContent();
+            await this.renderTextLayer(pageInfo.textLayerDiv, textContent, viewport);
+
+            // Update page container size
+            const pageContainer = canvas.parentElement;
+            pageContainer.style.width = `${viewport.width}px`;
+            pageContainer.style.height = `${viewport.height}px`;
+        }
+
+        // Restore overflow and scroll to the same page/position
+        this.container.style.overflow = '';
+
+        // Use rAF to ensure layout is computed before setting scroll
+        await new Promise(resolve => {
+            requestAnimationFrame(() => {
+                const targetPageEl = this.container.querySelector(`.pdf-page[data-page-num="${pageNum}"]`);
+                if (targetPageEl) {
+                    const pageTop = targetPageEl.offsetTop;
+                    const pageHeight = targetPageEl.offsetHeight;
+                    const targetScroll = pageTop + (pageHeight * offsetRatio) - (this.container.clientHeight / 2);
+                    this.container.scrollTop = targetScroll;
+                }
+                resolve();
+            });
+        });
+
+        // Re-apply highlights after re-render (without scrolling)
+        if (this.currentHighlight) {
+            this.applyHighlight(this.currentHighlight.text, this.currentHighlight.targetPage, false);
         }
     }
 

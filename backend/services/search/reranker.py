@@ -5,6 +5,37 @@ from typing import Optional
 from backend.config import get_settings
 
 
+class JinaRerankerWrapper:
+    """Wrapper for Jina Reranker v2 which isn't a CrossEncoder drop-in."""
+
+    def __init__(self, model_name: str, device: str):
+        import torch
+        from transformers import AutoModelForSequenceClassification, AutoTokenizer
+
+        self.tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
+        self.model = AutoModelForSequenceClassification.from_pretrained(
+            model_name, trust_remote_code=True
+        ).to(device)
+        self.device = device
+        self._torch = torch
+
+    def predict(self, pairs: list[tuple[str, str]]) -> list[float]:
+        self.model.eval()
+        queries = [p[0] for p in pairs]
+        documents = [p[1] for p in pairs]
+        tokens = self.tokenizer(
+            queries, documents, padding=True, truncation=True,
+            max_length=512, return_tensors="pt"
+        ).to(self.device)
+        with self._torch.no_grad():
+            outputs = self.model(**tokens)
+        # Logits as relevance scores
+        scores = outputs.logits.squeeze(-1).cpu().tolist()
+        if isinstance(scores, float):
+            scores = [scores]
+        return scores
+
+
 class Reranker:
     """Re-rank search results using a cross-encoder model."""
 
@@ -30,11 +61,12 @@ class Reranker:
     def model(self):
         """Lazy-load the cross-encoder model."""
         if self._model is None and self.settings.use_reranking:
-            from sentence_transformers import CrossEncoder
-            self._model = CrossEncoder(
-                self.settings.cross_encoder_model,
-                device=self.device
-            )
+            model_name = self.settings.cross_encoder_model
+            if "jina-reranker" in model_name.lower():
+                self._model = JinaRerankerWrapper(model_name, device=self.device)
+            else:
+                from sentence_transformers import CrossEncoder
+                self._model = CrossEncoder(model_name, device=self.device)
         return self._model
 
     def rerank(

@@ -1,5 +1,6 @@
 from typing import Optional
-import httpx
+import socket
+import aiohttp
 from backend.services.ai.base import AIProvider
 from backend.config import get_settings
 
@@ -21,38 +22,44 @@ class OllamaProvider(AIProvider):
         system_prompt: Optional[str] = None,
         max_tokens: int = 4096,
         temperature: float = 1.0,
+        response_format: Optional[dict] = None,
     ) -> str:
-        full_prompt = prompt
-        if system_prompt:
-            full_prompt = f"{system_prompt}\n\n{prompt}"
+        payload = {
+            "model": self.model,
+            "prompt": prompt,
+            "stream": False,
+            "format": response_format if response_format else "json",
+            "options": {
+                "num_predict": max_tokens,
+                "temperature": temperature,
+            },
+        }
 
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            response = await client.post(
+        if system_prompt:
+            payload["system"] = system_prompt
+
+        timeout = aiohttp.ClientTimeout(total=300, connect=30)
+        connector = aiohttp.TCPConnector(family=socket.AF_INET)
+        async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
+            async with session.post(
                 f"{self.base_url}/api/generate",
-                json={
-                    "model": self.model,
-                    "prompt": full_prompt,
-                    "stream": False,
-                    "options": {
-                        "num_predict": max_tokens,
-                        "temperature": temperature,
-                    },
-                },
-            )
-            response.raise_for_status()
-            return response.json().get("response", "")
+                json=payload,
+            ) as response:
+                response.raise_for_status()
+                data = await response.json()
+                return data.get("response", "")
 
     async def get_embeddings(self, texts: list[str]) -> list[list[float]]:
-        embeddings = []
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            for text in texts:
-                response = await client.post(
-                    f"{self.base_url}/api/embeddings",
-                    json={
-                        "model": self.embedding_model,
-                        "prompt": text,
-                    },
-                )
+        timeout = aiohttp.ClientTimeout(total=60, connect=30)
+        connector = aiohttp.TCPConnector(family=socket.AF_INET)
+        async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
+            async with session.post(
+                f"{self.base_url}/api/embed",
+                json={
+                    "model": self.embedding_model,
+                    "input": texts,
+                },
+            ) as response:
                 response.raise_for_status()
-                embeddings.append(response.json().get("embedding", []))
-        return embeddings
+                data = await response.json()
+                return data.get("embeddings", [])

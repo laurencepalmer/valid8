@@ -333,7 +333,7 @@ class CodeAnalyzer:
 
         try:
             response = await self.ai_provider.complete(
-                prompt=prompt,
+                prompt=prompt, temperature=0.0,
             )
 
             data = self._parse_response(response)

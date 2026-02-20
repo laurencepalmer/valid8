@@ -3,6 +3,17 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+
+
+class NoCacheStaticMiddleware(BaseHTTPMiddleware):
+    """Disable caching for static frontend files during development."""
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        if not request.url.path.startswith("/api/"):
+            response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        return response
 
 from backend.config import get_settings
 from backend.api.routes import papers, code, analysis, audit
@@ -38,6 +49,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.add_middleware(NoCacheStaticMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
@@ -55,6 +67,7 @@ app.include_router(audit.router, prefix="/api/audit", tags=["audit"])
 @app.get("/api/health")
 async def health_check():
     return {"status": "healthy"}
+
 
 
 @app.get("/api/status")
