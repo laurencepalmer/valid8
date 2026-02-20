@@ -93,6 +93,43 @@ class TTLCache:
             self.cache[key] = (time.time(), results)
 
 
+class UniXcoderEmbedder:
+    """Wrapper for UniXcoder models that aren't sentence-transformers compatible."""
+
+    def __init__(self, model_name: str, device: str):
+        import torch
+        from transformers import AutoModel, AutoTokenizer
+
+        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+        self.model = AutoModel.from_pretrained(model_name).to(device)
+        self.device = device
+        self._torch = torch
+
+    def encode(self, texts: list[str], convert_to_numpy: bool = True, **kwargs) -> "numpy.ndarray":
+        import numpy as np
+
+        self.model.eval()
+        all_embeddings = []
+        batch_size = 32
+        for i in range(0, len(texts), batch_size):
+            batch = texts[i : i + batch_size]
+            tokens = self.tokenizer(
+                batch, padding=True, truncation=True, max_length=512, return_tensors="pt"
+            ).to(self.device)
+            with self._torch.no_grad():
+                outputs = self.model(**tokens)
+            # CLS token embedding
+            cls_embeddings = outputs.last_hidden_state[:, 0, :]
+            if convert_to_numpy:
+                all_embeddings.append(cls_embeddings.cpu().numpy())
+            else:
+                all_embeddings.append(cls_embeddings.cpu())
+
+        if convert_to_numpy:
+            return np.concatenate(all_embeddings, axis=0)
+        return self._torch.cat(all_embeddings, dim=0)
+
+
 class EmbeddingService:
     def __init__(self):
         self._local_model = None
@@ -128,12 +165,12 @@ class EmbeddingService:
     @property
     def local_model(self):
         if self._local_model is None and self.settings.use_local_embeddings:
-            from sentence_transformers import SentenceTransformer
-
-            self._local_model = SentenceTransformer(
-                self.settings.local_embedding_model,
-                device=self.device
-            )
+            model_name = self.settings.local_embedding_model
+            if "unixcoder" in model_name.lower():
+                self._local_model = UniXcoderEmbedder(model_name, device=self.device)
+            else:
+                from sentence_transformers import SentenceTransformer
+                self._local_model = SentenceTransformer(model_name, device=self.device)
         return self._local_model
 
     @property
@@ -490,8 +527,9 @@ class EmbeddingService:
         for i in range(0, len(chunks), batch_size):
             batch = chunks[i : i + batch_size]
 
-            # Include section metadata in embedded text for better semantic matching
+            # Build display documents (with metadata) and clean texts (for embedding/BM25)
             documents = []
+            clean_texts = []
             for c in batch:
                 section_name = c.get("section_name", "")
                 section_type = c.get("section_type", "")
@@ -503,8 +541,10 @@ class EmbeddingService:
                     section_prefix += "\n"
                 doc = f"Paper: {paper.name}\nPage {c.get('page', 'N/A')}\n{section_prefix}{c['content']}"
                 documents.append(doc)
+                clean_texts.append(c['content'])
 
-            embeddings = await self.get_embeddings_async(documents)
+            # Embed clean content only — metadata prefix wastes embedding capacity
+            embeddings = await self.get_embeddings_async(clean_texts)
 
             ids = [f"paper_chunk_{i + j}" for j in range(len(batch))]
 
@@ -527,11 +567,11 @@ class EmbeddingService:
                 metadatas=metadatas,
             )
 
-            # Collect for BM25
-            for j, doc in enumerate(documents):
+            # Collect for BM25 — use clean content for better keyword matching
+            for j, clean in enumerate(clean_texts):
                 all_bm25_docs.append({
                     'id': ids[j],
-                    'document': doc,
+                    'document': clean,
                     'metadata': metadatas[j],
                 })
 

@@ -7,6 +7,7 @@ from backend.models.analysis import (
     CodeHighlightAnalysisResponse,
 )
 from backend.services.alignment import analyze_highlight, analyze_code_highlight
+from backend.services.precompute import get_precompute_cache
 from backend.services.state import app_state
 from backend.services.logging import logger, get_safe_error_message, sanitize_error
 
@@ -28,14 +29,27 @@ async def analyze_highlighted_text(request: HighlightAnalysisRequest):
         raise HTTPException(status_code=400, detail="Highlighted text cannot be empty")
 
     try:
-        result = await analyze_highlight(request.highlighted_text)
-        return result
+        async with get_precompute_cache().user_query():
+            result = await analyze_highlight(request.highlighted_text)
+            return result
     except Exception as e:
         logger.error(f"Highlight analysis failed: {sanitize_error(e)}", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail=get_safe_error_message(e, "Analysis")
         )
+
+
+@router.get("/precompute-status")
+async def get_precompute_status():
+    """Return progress of background pre-computation cache."""
+    cache = get_precompute_cache()
+    return {
+        "is_running": cache.is_running,
+        "progress": cache.progress,
+        "total": cache.total,
+        "cached_count": len(cache.cache),
+    }
 
 
 @router.post("/code-highlight", response_model=CodeHighlightAnalysisResponse)
@@ -54,10 +68,11 @@ async def analyze_code_highlighted_text(request: CodeHighlightAnalysisRequest):
         raise HTTPException(status_code=400, detail="Highlighted code cannot be empty")
 
     try:
-        result = await analyze_code_highlight(
-            request.highlighted_code, file_path=request.file_path
-        )
-        return result
+        async with get_precompute_cache().user_query():
+            result = await analyze_code_highlight(
+                request.highlighted_code, file_path=request.file_path
+            )
+            return result
     except Exception as e:
         logger.error(f"Code highlight analysis failed: {sanitize_error(e)}", exc_info=True)
         raise HTTPException(

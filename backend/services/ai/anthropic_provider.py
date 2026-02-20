@@ -20,6 +20,7 @@ class AnthropicProvider(AIProvider):
         system_prompt: Optional[str] = None,
         max_tokens: int = 4096,
         temperature: float = 1.0,
+        response_format: Optional[dict] = None,
     ) -> str:
         kwargs = {
             "model": self.model,
